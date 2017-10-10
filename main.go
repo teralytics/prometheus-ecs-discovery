@@ -33,6 +33,8 @@ var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
 
+// logError is a convenience function that decodes all possible ECS
+// errors and displays them to standard error.
 func logError(err error) {
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -56,6 +58,8 @@ func logError(err error) {
 	}
 }
 
+// GetClusters retrieves a list of *ClusterArns from Amazon ECS,
+// dealing with the mandatory pagination as needed.
 func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 	input := &ecs.ListClustersInput{}
 	output := &ecs.ListClustersOutput{}
@@ -73,12 +77,18 @@ func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 	return output, nil
 }
 
+// AugmentedTask represents an ECS task augmented with an extra set of
+// structures representing the ECS task definition and EC2 instance
+// associated with the running task.
 type AugmentedTask struct {
 	*ecs.Task
 	TaskDefinition *ecs.TaskDefinition
 	EC2Instance    *ec2.Instance
 }
 
+// PrometheusContainer represents a tuple of information
+// (Container Name, Container ARN, Docker image, Port)
+// extracted from a task, its task definition
 type PrometheusContainer struct {
 	ContainerName string
 	ContainerArn  string
@@ -86,12 +96,20 @@ type PrometheusContainer struct {
 	Port          int
 }
 
-// ExportedContainers returns a list of []*PrometheusContainer
-// enumerating the ports that the container exports for
-// Prometheus, one per container, so long as the Docker
-// labels in its corresponding container definition have
-// a PROMETHEUS_EXPORTER_PORT_INDEX corresponding to an
-// existing port mapping index for that container.
+// PrometheusTaskInfo is the final structure that will be
+// output as a Prometheus file service discovery config.
+type PrometheusTaskInfo struct {
+	Targets []string      `yaml:"targets"`
+	Labels  yaml.MapSlice `yaml:"labels"`
+}
+
+// ExporterInformation returns a list of []*PrometheusTaskInfo
+// enumerating the IPs, ports that the task's containers exports
+// to Prometheus (one per container), so long as the Docker
+// labels in its corresponding container definition for the
+// container in the task has a PROMETHEUS_EXPORTER_PORT_INDEX
+// corresponding to an existing port mapping index for that
+// container.
 //
 // Thus, a task with a container definition that has
 //     ...
@@ -116,44 +134,8 @@ type PrometheusContainer struct {
 // would see its second port (whatever the host port was
 // for the running container that got mapped to port 9001)
 // exposed as a mapped Prometheus port.
-func (t *AugmentedTask) ExportedContainers() []*PrometheusContainer {
-	instances := []*PrometheusContainer{}
-	for _, c := range t.Containers {
-		var d *ecs.ContainerDefinition
-		for _, d = range t.TaskDefinition.ContainerDefinitions {
-			if *c.Name == *d.Name {
-				break
-			}
-		}
-		if *c.Name != *d.Name {
-			continue
-		}
-		var v *string
-		var ok bool
-		if v, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PORT_INDEX"]; !ok {
-			continue
-		}
-		var err error
-		var portindex int
-		if portindex, err = strconv.Atoi(*v); err != nil || portindex < 0 || portindex >= len(d.PortMappings) {
-			continue
-		}
-		instances = append(instances, &PrometheusContainer{*c.Name, *c.ContainerArn, *d.Image, int(*c.NetworkBindings[portindex].HostPort)})
-	}
-	return instances
-}
-
-type PrometheusTaskInfo struct {
-	Targets []string      `yaml:"targets"`
-	Labels  yaml.MapSlice `yaml:"labels"`
-}
-
 func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	ret := []*PrometheusTaskInfo{}
-	instances := t.ExportedContainers()
-	if len(instances) == 0 {
-		return ret
-	}
 	var ip string
 	if t.EC2Instance == nil {
 		return ret
@@ -170,7 +152,36 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	if ip == "" {
 		return ret
 	}
-	for _, i := range instances {
+	for _, i := range t.Containers {
+		// Let's go over the containers to see which ones are defined
+		// and have a Prometheus exported port.
+		var d *ecs.ContainerDefinition
+		for _, d = range t.TaskDefinition.ContainerDefinitions {
+			if *i.Name == *d.Name {
+				// Aha, the container definition matchis this container we
+				// are inspecting, stop the loop cos we got the D now.
+				break
+			}
+		}
+		if *i.Name != *d.Name {
+			// Nope, no match, this container cannot be exported.  We continue.
+			continue
+		}
+		var v *string
+		var ok bool
+		if v, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PORT_INDEX"]; !ok {
+			// Nope, no Prometheus-exported port in this container def.
+			// This container is no good.  We continue.
+			continue
+		}
+		var err error
+		var portindex int
+		if portindex, err = strconv.Atoi(*v); err != nil || portindex < 0 || portindex >= len(d.PortMappings) {
+			// This container has an invalid port definition.
+			// This container is no good.  We continue.
+			continue
+		}
+		port := int(*i.NetworkBindings[portindex].HostPort)
 		labels := yaml.MapSlice{}
 		labels = append(labels,
 			yaml.MapItem{"task_arn", *t.TaskArn},
@@ -178,18 +189,20 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			yaml.MapItem{"task_revision", fmt.Sprintf("%d", *t.TaskDefinition.Revision)},
 			yaml.MapItem{"task_group", *t.Group},
 			yaml.MapItem{"cluster_arn", *t.ClusterArn},
-			yaml.MapItem{"container_name", i.ContainerName},
-			yaml.MapItem{"container_arn", i.ContainerArn},
-			yaml.MapItem{"docker_image", i.DockerImage},
+			yaml.MapItem{"container_name", *i.Name},
+			yaml.MapItem{"container_arn", *i.ContainerArn},
+			yaml.MapItem{"docker_image", *d.Image},
 		)
 		ret = append(ret, &PrometheusTaskInfo{
-			Targets: []string{fmt.Sprintf("%s:%d", ip, i.Port)},
+			Targets: []string{fmt.Sprintf("%s:%d", ip, port)},
 			Labels:  labels,
 		})
 	}
 	return ret
 }
 
+// AddTaskDefinitionsOfTasks adds to each Task the TaskDefinition
+// corresponding to it.
 func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
 	task2def := make(map[string]*ecs.TaskDefinition)
 	for _, task := range taskList {
@@ -241,6 +254,9 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 	return taskList, nil
 }
 
+// StringToStarString converts a list of strings to a list of
+// pointers to strings, which is a common requirement of the
+// Amazon API.
 func StringToStarString(s []string) []*string {
 	c := make([]*string, 0, len(s))
 	for n, _ := range s {
@@ -249,6 +265,9 @@ func StringToStarString(s []string) []*string {
 	return c
 }
 
+// DescribeInstancesUnpaginated describes a list of EC2 instances.
+// It is unpaginated because the API function does not require
+// pagination.
 func DescribeInstancesUnpaginated(svcec2 *ec2.EC2, instanceIds []string) ([]*ec2.Instance, error) {
 	input := &ec2.DescribeInstancesInput{
 		InstanceIds: StringToStarString(instanceIds),
@@ -275,6 +294,8 @@ func DescribeInstancesUnpaginated(svcec2 *ec2.EC2, instanceIds []string) ([]*ec2
 	return result, nil
 }
 
+// AddContainerInstancesToTasks adds to each Task the EC2 instance
+// running its containers.
 func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
 	clusterArnToContainerInstancesArns := make(map[string]map[string]*ecs.ContainerInstance)
 	for _, task := range taskList {
@@ -339,6 +360,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 	return taskList, nil
 }
 
+// GetTasksOfClusters returns the EC2 tasks running in a list of Clusters.
 func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]*ecs.Task, error) {
 	jobs := make(chan *string, len(clusterArns))
 	results := make(chan struct {
@@ -413,6 +435,8 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 	return tasks, nil
 }
 
+// GetAugmentedTasks gets the fully AugmentedTasks running on
+// a list of Clusters.
 func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]*AugmentedTask, error) {
 	simpleTasks, err := GetTasksOfClusters(svc, svcec2, clusterArns)
 	if err != nil {
