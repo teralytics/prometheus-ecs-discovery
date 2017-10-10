@@ -38,6 +38,8 @@ var times = flag.Int("config.scrape-times", 0, "how many times to scrape before 
 func logError(err error) {
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
 			switch aerr.Code() {
 			case ecs.ErrCodeServerException:
 				log.Println(ecs.ErrCodeServerException, aerr.Error())
@@ -51,8 +53,6 @@ func logError(err error) {
 				log.Println(aerr.Error())
 			}
 		} else {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
 			log.Println(err.Error())
 		}
 	}
