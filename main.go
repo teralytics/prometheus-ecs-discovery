@@ -113,7 +113,7 @@ type PrometheusTaskInfo struct {
 //
 // Thus, a task with a container definition that has
 //     ...
-//             "Name": "mosquitto",
+//             "Name": "apache",
 //             "DockerLabels": {
 //                  "PROMETHEUS_EXPORTER_PORTINDEX": "1"
 //              },
