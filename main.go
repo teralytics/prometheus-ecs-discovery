@@ -21,7 +21,6 @@ import (
 	"log"
 	"strconv"
 	"time"
-
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -107,15 +106,13 @@ type PrometheusTaskInfo struct {
 // enumerating the IPs, ports that the task's containers exports
 // to Prometheus (one per container), so long as the Docker
 // labels in its corresponding container definition for the
-// container in the task has a PROMETHEUS_EXPORTER_PORT_INDEX
-// corresponding to an existing port mapping index for that
-// container.
+// container in the task has a PROMETHEUS_EXPORTER_PORT
 //
-// Thus, a task with a container definition that has
+// Example:
 //     ...
 //             "Name": "apache",
 //             "DockerLabels": {
-//                  "PROMETHEUS_EXPORTER_PORTINDEX": "1"
+//                  "PROMETHEUS_EXPORTER_PORT": "1234"
 //              },
 //     ...
 //              "PortMappings": [
@@ -125,15 +122,12 @@ type PrometheusTaskInfo struct {
 //                  "Protocol": "tcp"
 //                },
 //                {
-//                  "ContainerPort": 9001,
+//                  "ContainerPort": 1234,
 //                  "HostPort": 0,
 //                  "Protocol": "tcp"
 //                }
 //              ],
 //     ...
-// would see its second port (whatever the host port was
-// for the running container that got mapped to port 9001)
-// exposed as a mapped Prometheus port.
 func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	ret := []*PrometheusTaskInfo{}
 	var ip string
@@ -169,19 +163,24 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		}
 		var v *string
 		var ok bool
-		if v, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PORT_INDEX"]; !ok {
+		if v, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PORT"]; !ok {
 			// Nope, no Prometheus-exported port in this container def.
 			// This container is no good.  We continue.
 			continue
 		}
 		var err error
-		var portindex int
-		if portindex, err = strconv.Atoi(*v); err != nil || portindex < 0 || portindex >= len(d.PortMappings) {
+		var exporterPort int
+		if exporterPort, err = strconv.Atoi(*v); err != nil || exporterPort < 0 {
 			// This container has an invalid port definition.
 			// This container is no good.  We continue.
 			continue
 		}
-		port := int(*i.NetworkBindings[portindex].HostPort)
+                var hostPort int64
+                for _, nb := range i.NetworkBindings {
+                       if int(*nb.ContainerPort) == exporterPort {
+                             hostPort = *nb.HostPort
+                       }
+                 }
 		labels := yaml.MapSlice{}
 		labels = append(labels,
 			yaml.MapItem{"task_arn", *t.TaskArn},
@@ -194,7 +193,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			yaml.MapItem{"docker_image", *d.Image},
 		)
 		ret = append(ret, &PrometheusTaskInfo{
-			Targets: []string{fmt.Sprintf("%s:%d", ip, port)},
+			Targets: []string{fmt.Sprintf("%s:%d", ip, hostPort)},
 			Labels:  labels,
 		})
 	}
