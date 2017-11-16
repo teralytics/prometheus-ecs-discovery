@@ -175,12 +175,12 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			// This container is no good.  We continue.
 			continue
 		}
-                var hostPort int64
-                for _, nb := range i.NetworkBindings {
-                       if int(*nb.ContainerPort) == exporterPort {
-                             hostPort = *nb.HostPort
-                       }
-                 }
+		var hostPort int64
+		for _, nb := range i.NetworkBindings {
+			if int(*nb.ContainerPort) == exporterPort {
+				hostPort = *nb.HostPort
+			}
+		}
 		labels := yaml.MapSlice{}
 		labels = append(labels,
 			yaml.MapItem{"task_arn", *t.TaskArn},
