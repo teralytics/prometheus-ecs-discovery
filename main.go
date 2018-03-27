@@ -21,6 +21,7 @@ import (
 	"log"
 	"strconv"
 	"time"
+
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -131,21 +132,26 @@ type PrometheusTaskInfo struct {
 func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	ret := []*PrometheusTaskInfo{}
 	var ip string
-	if t.EC2Instance == nil {
-		return ret
-	}
-	if len(t.EC2Instance.NetworkInterfaces) == 0 {
-		return ret
-	}
-	for _, iface := range t.EC2Instance.NetworkInterfaces {
-		if iface.PrivateIpAddress != nil && *iface.PrivateIpAddress != "" {
-			ip = *iface.PrivateIpAddress
-			break
+
+	if *t.LaunchType != "FARGATE" {
+		if t.EC2Instance == nil {
+			return ret
 		}
+		if len(t.EC2Instance.NetworkInterfaces) == 0 {
+			return ret
+		}
+		for _, iface := range t.EC2Instance.NetworkInterfaces {
+			if iface.PrivateIpAddress != nil && *iface.PrivateIpAddress != "" {
+				ip = *iface.PrivateIpAddress
+				break
+			}
+		}
+		if ip == "" {
+			return ret
+		}
+
 	}
-	if ip == "" {
-		return ret
-	}
+
 	for _, i := range t.Containers {
 		// Let's go over the containers to see which ones are defined
 		// and have a Prometheus exported port.
@@ -157,7 +163,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				break
 			}
 		}
-		if *i.Name != *d.Name {
+		if *i.Name != *d.Name && *t.LaunchType != "FARGATE" {
 			// Nope, no match, this container cannot be exported.  We continue.
 			continue
 		}
@@ -168,19 +174,31 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			// This container is no good.  We continue.
 			continue
 		}
+
 		var err error
 		var exporterPort int
+		var hostPort int64
 		if exporterPort, err = strconv.Atoi(*v); err != nil || exporterPort < 0 {
 			// This container has an invalid port definition.
 			// This container is no good.  We continue.
 			continue
 		}
-		var hostPort int64
-		for _, nb := range i.NetworkBindings {
-			if int(*nb.ContainerPort) == exporterPort {
-				hostPort = *nb.HostPort
+
+		if *t.LaunchType != "FARGATE" {
+			for _, nb := range i.NetworkBindings {
+				if int(*nb.ContainerPort) == exporterPort {
+					hostPort = *nb.HostPort
+				}
 			}
+		} else {
+			for _, ni := range i.NetworkInterfaces {
+				if *ni.PrivateIpv4Address != "" {
+					ip = *ni.PrivateIpv4Address
+				}
+			}
+			hostPort = int64(exporterPort)
 		}
+
 		labels := yaml.MapSlice{}
 		labels = append(labels,
 			yaml.MapItem{"task_arn", *t.TaskArn},
@@ -296,12 +314,15 @@ func DescribeInstancesUnpaginated(svcec2 *ec2.EC2, instanceIds []string) ([]*ec2
 // AddContainerInstancesToTasks adds to each Task the EC2 instance
 // running its containers.
 func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
+
 	clusterArnToContainerInstancesArns := make(map[string]map[string]*ecs.ContainerInstance)
 	for _, task := range taskList {
-		if _, ok := clusterArnToContainerInstancesArns[*task.ClusterArn]; !ok {
-			clusterArnToContainerInstancesArns[*task.ClusterArn] = make(map[string]*ecs.ContainerInstance)
+		if task.ContainerInstanceArn != nil {
+			if _, ok := clusterArnToContainerInstancesArns[*task.ClusterArn]; !ok {
+				clusterArnToContainerInstancesArns[*task.ClusterArn] = make(map[string]*ecs.ContainerInstance)
+			}
+			clusterArnToContainerInstancesArns[*task.ClusterArn][*task.ContainerInstanceArn] = nil
 		}
-		clusterArnToContainerInstancesArns[*task.ClusterArn][*task.ContainerInstanceArn] = nil
 	}
 
 	instanceIDToEC2Instance := make(map[string]*ec2.Instance)
@@ -343,17 +364,19 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 	}
 
 	for _, task := range taskList {
-		containerInstance, ok := clusterArnToContainerInstancesArns[*task.ClusterArn][*task.ContainerInstanceArn]
-		if !ok {
-			log.Printf("Cannot find container instance %s in cluster %s", *task.ContainerInstanceArn, *task.ClusterArn)
-			continue
+		if task.ContainerInstanceArn != nil {
+			containerInstance, ok := clusterArnToContainerInstancesArns[*task.ClusterArn][*task.ContainerInstanceArn]
+			if !ok {
+				log.Printf("Cannot find container instance %s in cluster %s", *task.ContainerInstanceArn, *task.ClusterArn)
+				continue
+			}
+			instance, ok := instanceIDToEC2Instance[*containerInstance.Ec2InstanceId]
+			if !ok {
+				log.Printf("Cannot find EC2 instance", *containerInstance.Ec2InstanceId)
+				continue
+			}
+			task.EC2Instance = instance
 		}
-		instance, ok := instanceIDToEC2Instance[*containerInstance.Ec2InstanceId]
-		if !ok {
-			log.Printf("Cannot find EC2 instance", *containerInstance.Ec2InstanceId)
-			continue
-		}
-		task.EC2Instance = instance
 	}
 
 	return taskList, nil
@@ -446,7 +469,6 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 	for _, t := range simpleTasks {
 		tasks = append(tasks, &AugmentedTask{t, nil, nil})
 	}
-
 	tasks, err = AddTaskDefinitionsOfTasks(svc, tasks)
 	if err != nil {
 		return nil, err
