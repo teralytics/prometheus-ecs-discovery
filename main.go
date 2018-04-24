@@ -286,6 +286,10 @@ func StringToStarString(s []string) []*string {
 // It is unpaginated because the API function does not require
 // pagination.
 func DescribeInstancesUnpaginated(svcec2 *ec2.EC2, instanceIds []string) ([]*ec2.Instance, error) {
+	if len(instanceIds) == 0 {
+		return nil, nil
+	}
+
 	input := &ec2.DescribeInstancesInput{
 		InstanceIds: StringToStarString(instanceIds),
 	}
