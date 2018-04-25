@@ -352,6 +352,9 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 			instanceIDToEC2Instance[*ci.Ec2InstanceId] = nil
 		}
 	}
+	if len(instanceIDToEC2Instance) == 0 {
+		return taskList, nil
+	}
 
 	keys := make([]string, 0, len(instanceIDToEC2Instance))
 	for id, _ := range instanceIDToEC2Instance {
