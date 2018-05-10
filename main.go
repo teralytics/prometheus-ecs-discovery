@@ -400,7 +400,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 				var err error
 				for {
 					output, err1 := svc.ListTasks(input)
-					if err != nil {
+					if err1 != nil {
 						err = err1
 						log.Printf("Error listing tasks of cluster %s: %s", *clusterArn, err)
 						break
