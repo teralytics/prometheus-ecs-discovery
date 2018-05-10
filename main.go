@@ -257,7 +257,6 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 			err = result.err
 			log.Printf("Error describing task definition: %s", err)
 		} else {
-			log.Printf("Described task definition %s", *result.out.TaskDefinition.TaskDefinitionArn)
 			task2def[*result.out.TaskDefinition.TaskDefinitionArn] = result.out.TaskDefinition
 		}
 	}
@@ -339,7 +338,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 		if err != nil {
 			return nil, err
 		}
-		log.Printf("Described %d container instances in cluster %s", len(output.ContainerInstances), clusterArn)
+
 		if len(output.Failures) > 0 {
 			log.Printf("Described %d failures in cluster %s", len(output.Failures), clusterArn)
 		}
