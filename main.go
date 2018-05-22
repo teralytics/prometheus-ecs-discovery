@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -131,6 +132,7 @@ type PrometheusTaskInfo struct {
 //     ...
 func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	ret := []*PrometheusTaskInfo{}
+	var host string
 	var ip string
 
 	if *t.LaunchType != "FARGATE" {
@@ -178,6 +180,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		var err error
 		var exporterPort int
 		var hostPort int64
+		var exporterServerName *string
 		if exporterPort, err = strconv.Atoi(*v); err != nil || exporterPort < 0 {
 			// This container has an invalid port definition.
 			// This container is no good.  We continue.
@@ -199,6 +202,14 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			hostPort = int64(exporterPort)
 		}
 
+
+		if exporterServerName, ok = d.DockerLabels["PROMETHEUS_EXPORTER_SERVER_NAME"]; ok {
+			host = strings.TrimRight(*exporterServerName, "/")
+		} else {
+			// No server name, so fall back to ip address
+			host = ip
+		}
+
 		labels := yaml.MapSlice{}
 		labels = append(labels,
 			yaml.MapItem{"task_arn", *t.TaskArn},
@@ -211,7 +222,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			yaml.MapItem{"docker_image", *d.Image},
 		)
 		ret = append(ret, &PrometheusTaskInfo{
-			Targets: []string{fmt.Sprintf("%s:%d", ip, hostPort)},
+			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
 			Labels:  labels,
 		})
 	}
@@ -257,7 +268,6 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 			err = result.err
 			log.Printf("Error describing task definition: %s", err)
 		} else {
-			log.Printf("Described task definition %s", *result.out.TaskDefinition.TaskDefinitionArn)
 			task2def[*result.out.TaskDefinition.TaskDefinitionArn] = result.out.TaskDefinition
 		}
 	}
@@ -286,6 +296,10 @@ func StringToStarString(s []string) []*string {
 // It is unpaginated because the API function does not require
 // pagination.
 func DescribeInstancesUnpaginated(svcec2 *ec2.EC2, instanceIds []string) ([]*ec2.Instance, error) {
+	if len(instanceIds) == 0 {
+		return nil, nil
+	}
+
 	input := &ec2.DescribeInstancesInput{
 		InstanceIds: StringToStarString(instanceIds),
 	}
@@ -339,7 +353,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 		if err != nil {
 			return nil, err
 		}
-		log.Printf("Described %d container instances in cluster %s", len(output.ContainerInstances), clusterArn)
+
 		if len(output.Failures) > 0 {
 			log.Printf("Described %d failures in cluster %s", len(output.Failures), clusterArn)
 		}
@@ -347,6 +361,9 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 			clusterArnToContainerInstancesArns[clusterArn][*ci.ContainerInstanceArn] = ci
 			instanceIDToEC2Instance[*ci.Ec2InstanceId] = nil
 		}
+	}
+	if len(instanceIDToEC2Instance) == 0 {
+		return taskList, nil
 	}
 
 	keys := make([]string, 0, len(instanceIDToEC2Instance))
@@ -400,7 +417,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 				var err error
 				for {
 					output, err1 := svc.ListTasks(input)
-					if err != nil {
+					if err1 != nil {
 						err = err1
 						log.Printf("Error listing tasks of cluster %s: %s", *clusterArn, err)
 						break
