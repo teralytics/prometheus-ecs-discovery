@@ -187,13 +187,12 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			continue
 		}
 
-		if *t.LaunchType != "FARGATE" {
-			// for _, nb := range i.NetworkBindings {
-			// 	if int(*nb.ContainerPort) == exporterPort {
-			// 		hostPort = *nb.HostPort
-			// 	}
-			// }
-			hostPort = int64(exporterPort)
+		if len(i.NetworkBindings) > 0 {
+			for _, nb := range i.NetworkBindings {
+				if int(*nb.ContainerPort) == exporterPort {
+					hostPort = *nb.HostPort
+				}
+			}
 		} else {
 			for _, ni := range i.NetworkInterfaces {
 				if *ni.PrivateIpv4Address != "" {
@@ -202,7 +201,6 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			}
 			hostPort = int64(exporterPort)
 		}
-
 
 		if exporterServerName, ok = d.DockerLabels["PROMETHEUS_EXPORTER_SERVER_NAME"]; ok {
 			host = strings.TrimRight(*exporterServerName, "/")
