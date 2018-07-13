@@ -188,11 +188,12 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		}
 
 		if *t.LaunchType != "FARGATE" {
-			for _, nb := range i.NetworkBindings {
-				if int(*nb.ContainerPort) == exporterPort {
-					hostPort = *nb.HostPort
-				}
-			}
+			// for _, nb := range i.NetworkBindings {
+			// 	if int(*nb.ContainerPort) == exporterPort {
+			// 		hostPort = *nb.HostPort
+			// 	}
+			// }
+			hostPort = int64(exporterPort)
 		} else {
 			for _, ni := range i.NetworkInterfaces {
 				if *ni.PrivateIpv4Address != "" {
