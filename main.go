@@ -181,6 +181,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		var exporterPort int
 		var hostPort int64
 		var exporterServerName *string
+		var exporterPath *string
 		if exporterPort, err = strconv.Atoi(*v); err != nil || exporterPort < 0 {
 			// This container has an invalid port definition.
 			// This container is no good.  We continue.
@@ -221,6 +222,13 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			yaml.MapItem{"container_arn", *i.ContainerArn},
 			yaml.MapItem{"docker_image", *d.Image},
 		)
+
+		if exporterPath, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PATH"]; ok {
+			labels = append(labels,
+				yaml.MapItem{"__metrics_path__", *exporterPath},
+			)
+		}
+
 		ret = append(ret, &PrometheusTaskInfo{
 			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
 			Labels:  labels,
