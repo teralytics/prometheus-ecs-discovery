@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -500,9 +501,14 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 
 func main() {
 	flag.Parse()
-	sess := session.New()
+
+	config := aws.NewConfig().WithCredentialsChainVerboseErrors(true)
+
+	// Initialise AWS Service clients
+	sess := session.New(config)
 	svc := ecs.New(sess)
 	svcec2 := ec2.New(sess)
+
 	work := func() {
 		clusters, err := GetClusters(svc)
 		if err != nil {
