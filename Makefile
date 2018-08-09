@@ -66,7 +66,12 @@ build: ## Build the Docker image.
 
 run: ## Run the Docker image.
 	@printf '%b\n' ">> $(TEAL)running the docker image"
-	docker run -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_REGION -v $(PWD):/root/file_sd_config.yml "financial-times/$(REPO_NAME):$(VCS_SHA)" $(ARGS)
+	docker run \
+		-e AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
+		-e AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY) \
+		-e AWS_REGION=$(AWS_REGION) \
+		-v $(PWD)/out:/root/out \
+		"financial-times/$(REPO_NAME):$(VCS_SHA)" $(ARGS) --config.write-to=out/ecs_file_sd.yml
 	@$(DONE)
 
 publish: ## Push the docker image to the FT private repository.

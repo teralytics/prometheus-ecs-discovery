@@ -152,13 +152,13 @@ type PrometheusTaskInfo struct {
 // enumerating the IPs, ports that the task's containers exports
 // to Prometheus (one per container), so long as the Docker
 // labels in its corresponding container definition for the
-// container in the task has a PROMETHEUS_EXPORTER_PORT
+// container in the task has a com.prometheus-ecs-discovery.port
 //
 // Example:
 //     ...
 //             "Name": "apache",
 //             "DockerLabels": {
-//                  "PROMETHEUS_EXPORTER_PORT": "1234"
+//                  "com.prometheus-ecs-discovery.port": "1234"
 //              },
 //     ...
 //              "PortMappings": [
@@ -209,8 +209,8 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		var d ecs.ContainerDefinition
 		for _, d = range t.TaskDefinition.ContainerDefinitions {
 			if *i.Name == *d.Name {
-				// Aha, the container definition matchis this container we
-				// are inspecting, stop the loop cos we got the D now.
+				// Aha, the container definition matches this container we
+				// are inspecting, stop the loop because we got the task definition now.
 				break
 			}
 		}

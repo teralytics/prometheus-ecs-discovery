@@ -22,3 +22,6 @@ caches
 
 # VSCode local config
 .vscode
+
+# Output folder for testing config generation
+out/
