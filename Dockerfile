@@ -1,27 +1,46 @@
-ARG GO_VERSION=1.10
+ARG GO_VERSION=1.12
 
+# Step 1: Install CA certificates and setup Go binary build
 FROM golang:${GO_VERSION}-alpine AS build
 
-WORKDIR /go/src/github.com/Financial-Times/prometheus-ecs-discovery/
+# dummy GOPATH to allow go modules in WORKDIR
+ENV GOPATH="/src/go"
 
-RUN apk add --update --no-cache curl git && \
-    curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+RUN apk add --update --no-cache git gcc musl-dev ca-certificates
 
-COPY Gopkg.toml Gopkg.lock ./
+ARG USER_ID=700
+ARG GROUP_ID=700
 
-RUN dep ensure -vendor-only
+RUN addgroup -g $GROUP_ID -S service && adduser -u $USER_ID -D -G service service
+
+COPY go.mod go.sum ./
+
+RUN go mod download
 
 COPY . ./
 
-RUN go build -o /tmp/prometheus-ecs-discovery main.go
+# disable the support for linking C code. This allows us to use the binary in scratch with no system libraries
+ENV CGO_ENABLED=0
+# compile linux only
+ENV GOOS=linux
 
-FROM alpine:latest
+# Step 2: Build go binaries
+FROM build as go-build
 
-RUN apk add --update --no-cache ca-certificates
+RUN go build -o /tmp/bin/ecs-discovery -a cmd/ecs-discovery/main.go
 
-WORKDIR /root/
+# Step 3: Copy binaries and ca-certificates to scratch (empty) image
+FROM scratch
 
-COPY --from=build /tmp/prometheus-ecs-discovery .
+COPY --from=build /etc/passwd /etc/passwd
+COPY --from=build /etc/group /etc/group
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+COPY --from=go-build /tmp/bin /bin
+
+USER service
+
+ENV PATH="/bin"
 
 ARG BUILD_DATE
 ARG BUILD_NUMBER
@@ -35,7 +54,7 @@ LABEL maintainer="reliability.engineering@ft.com" \
     org.opencontainers.revision="$VCS_SHA" \
     org.opencontainers.title="prometheus-ecs-discovery" \
     org.opencontainers.source="https://github.com/Financial-Times/prometheus-ecs-discovery" \
-    org.opencontainers.url="https://dewey.in.ft.com/view/system/prometheus-ecs-discovery" \
+    org.opencontainers.url="https://biz-ops.in.ft.com/System/prometheus-ecs-discovery" \
     org.opencontainers.vendor="financial-times"
 
-ENTRYPOINT ["/root/prometheus-ecs-discovery"]
+CMD ["ecs-discovery"]

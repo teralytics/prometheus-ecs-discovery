@@ -669,16 +669,16 @@ func main() {
 			logError(err)
 			return
 		}
-		log.Printf("Writing %d discovered exporters to %s", len(infos), outFile)
-		err = ioutil.WriteFile(outFile, m, 0644)
+		log.Printf("Writing %d discovered exporters to %s", len(infos), *outFile)
+		err = ioutil.WriteFile(*outFile, m, 0644)
 		if err != nil {
 			logError(err)
 			return
 		}
 	}
 	s := time.NewTimer(1 * time.Millisecond)
-	t := time.NewTicker(interval)
-	n := times
+	t := time.NewTicker(*interval)
+	n := *times
 	for {
 		select {
 		case <-s.C:
@@ -686,7 +686,7 @@ func main() {
 		}
 		work()
 		n = n - 1
-		if times > 0 && n == 0 {
+		if *times > 0 && n == 0 {
 			break
 		}
 	}

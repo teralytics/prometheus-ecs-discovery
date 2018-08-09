@@ -5,6 +5,7 @@ GREEN = $(shell printf '%b' "\033[0;32m")
 RED = $(shell printf '%b' "\033[0;31m")
 NO_COLOUR = $(shell printf '%b' "\033[m")
 
+GOBIN = $(shell pwd)/bin
 PACKAGES = $(shell go list ./... | grep -v /vendor/)
 UPPER_CASE_REPO_NAME = $(shell $(	REPO_NAME) | sed -r 's/\<./\U&/g')
 AWS := $(shell command aws --version 2> /dev/null)

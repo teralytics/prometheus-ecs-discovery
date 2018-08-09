@@ -1,7 +1,6 @@
 defaults: &defaults
   docker:
-    - image: circleci/golang:1.10
-  working_directory: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+    - image: circleci/golang:1.12
 
 version: 2
 jobs:
@@ -11,19 +10,16 @@ jobs:
       - checkout
 
       - restore_cache:
-          key: v1-gopkg-{{ checksum "Gopkg.lock" }}
+          key: v1-gomod-{{ checksum "go.sum" }}
 
       - run:
-          name: Install dependencies
-          command: |
-            if [ ! -d  /go/src/github.com/Financial-Times/prometheus-ecs-discovery/vendor ]; then
-                dep ensure
-            fi
+          name: Download dependencies
+          command: go mod download
 
       - save_cache:
-          key: v1-gopkg-{{ checksum "Gopkg.lock" }}
+          key: v1-gomod-{{ checksum "go.sum" }}
           paths:
-            -  /go/src/github.com/Financial-Times/prometheus-ecs-discovery/vendor
+            - /go/pkg/mod
 
       - persist_to_workspace:
           root: .
@@ -34,7 +30,7 @@ jobs:
     <<: *defaults
     steps:
       - attach_workspace:
-            at: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+            at: ~/project
 
       - run:
           name: Check the style
@@ -50,7 +46,7 @@ jobs:
       - setup_remote_docker
 
       - attach_workspace:
-          at: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+          at: ~/project
 
       - run:
           name: Login to the Docker repository
@@ -82,7 +78,7 @@ jobs:
       - setup_remote_docker
 
       - attach_workspace:
-            at: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+            at: ~/project
 
       - run:
           name: Login to the Docker repository
@@ -96,7 +92,7 @@ jobs:
 
   deploy-service:
     docker:
-      - image: circleci/python:3.6.6
+      - image: circleci/python:3.7
     steps:
       - attach_workspace:
           at: ~/project
