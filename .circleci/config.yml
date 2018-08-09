@@ -1,0 +1,155 @@
+defaults: &defaults
+  docker:
+    - image: circleci/golang:1.10
+  working_directory: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+
+version: 2
+jobs:
+  install:
+    <<: *defaults
+    steps:
+      - checkout
+
+      - restore_cache:
+          key: v1-gopkg-{{ checksum "Gopkg.lock" }}
+
+      - run:
+          name: Install dependencies
+          command: |
+            if [ ! -d  /go/src/github.com/Financial-Times/prometheus-ecs-discovery/vendor ]; then
+                dep ensure
+            fi
+
+      - save_cache:
+          key: v1-gopkg-{{ checksum "Gopkg.lock" }}
+          paths:
+            -  /go/src/github.com/Financial-Times/prometheus-ecs-discovery/vendor
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  verify:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+            at: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+
+      - run:
+          name: Check the style
+          command: make style
+
+      - run:
+          name: Vet the code
+          command: make vet
+
+  build-image:
+    <<: *defaults
+    steps:
+      - setup_remote_docker
+
+      - attach_workspace:
+          at: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+
+      - run:
+          name: Login to the Docker repository
+          command: echo "$DOCKER_REGISTRY_PASSWORD" | docker login nexus.in.ft.com:5000 --username "$DOCKER_REGISTRY_USERNAME" --password-stdin
+
+      - run:
+          name: Build the exporter Docker image if it does not exist
+          command: |
+            export IMAGE_TAG="nexus.in.ft.com:5000/operations-reliability/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1"
+            docker pull "$IMAGE_TAG" >/dev/null 2>&1 || true
+            if $(docker image inspect "$IMAGE_TAG" >/dev/null 2>&1); then
+              echo "Skipping build as image exists for git sha \"$CIRCLE_SHA1\""
+              docker tag "$IMAGE_TAG" "financial-times/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1"
+            else
+              echo "Building new docker image"
+              make build
+            fi
+            mkdir -p caches
+            docker save -o "caches/docker-cache-$CIRCLE_SHA1.tar" "financial-times/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1"
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  publish-revision:
+    <<: *defaults
+    steps:
+      - setup_remote_docker
+
+      - attach_workspace:
+            at: /go/src/github.com/Financial-Times/prometheus-ecs-discovery
+
+      - run:
+          name: Login to the Docker repository
+          command: echo "$DOCKER_REGISTRY_PASSWORD" | docker login nexus.in.ft.com:5000 --username "$DOCKER_REGISTRY_USERNAME" --password-stdin
+
+      - run:
+          name: Push the Docker image
+          command: |
+            docker load -i "caches/docker-cache-$CIRCLE_SHA1.tar"
+            DOCKER_TAG="$CIRCLE_SHA1" make publish
+
+  deploy-service:
+    docker:
+      - image: circleci/python:3.6.6
+    steps:
+      - attach_workspace:
+          at: ~/project
+
+      - run:
+          name: Install AWS CLI
+          command: sudo pip install awscli
+
+      # TODO: add tests for service responsiveness before rolling out multi-region
+      - run:
+          name: Update cloudformation stack eu-west-1
+          command: DOCKER_TAG="$CIRCLE_SHA1" .circleci/do-exclusively.sh --branch $CIRCLE_BRANCH make deploy-stack
+          environment:
+            AWS_DEFAULT_REGION: eu-west-1
+
+      - run:
+          name: Update cloudformation stack us-east-1
+          command: DOCKER_TAG="$CIRCLE_SHA1" .circleci/do-exclusively.sh --branch $CIRCLE_BRANCH make deploy-stack
+          environment:
+            AWS_DEFAULT_REGION: us-east-1
+
+workflows:
+  version: 2
+  build-and-deploy:
+    jobs:
+      - install
+      - verify:
+          requires:
+            - install
+      - build-image:
+          context: monitoring-agg-ecs-prod
+          requires:
+            - install
+      - publish-revision:
+          context: monitoring-agg-ecs-prod
+          requires:
+            - verify
+            - build-image
+          filters:
+            branches:
+              only:
+                - master
+      - deploy-service:
+          context: monitoring-agg-ecs-prod
+          requires:
+            - publish-revision
+          filters:
+            branches:
+              only:
+                - master
+
+experimental:
+  notify:
+    branches:
+      only:
+        - master

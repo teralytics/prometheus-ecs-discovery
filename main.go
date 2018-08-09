@@ -18,10 +18,12 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
@@ -30,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/go-yaml/yaml"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 type labels struct {
@@ -65,18 +68,36 @@ func logError(err error) {
 			// Message from an error.
 			switch aerr.Code() {
 			case ecs.ErrCodeServerException:
-				log.Println(ecs.ErrCodeServerException, aerr.Error())
+				log.WithFields(log.Fields{
+					"event": "ERROR_ECS_SERVER_SIDE_ERROR",
+					"err":   aerr,
+				}).Println(ecs.ErrCodeServerException, aerr.Error())
 			case ecs.ErrCodeClientException:
-				log.Println(ecs.ErrCodeClientException, aerr.Error())
+				log.WithFields(log.Fields{
+					"event": "ERROR_ECS_CLIENT_SIDE_ERROR",
+					"err":   aerr,
+				}).Println(ecs.ErrCodeClientException, aerr.Error())
 			case ecs.ErrCodeInvalidParameterException:
-				log.Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
+				log.WithFields(log.Fields{
+					"event": "ERROR_ECS_INVALID_PARAMETRS",
+					"err":   aerr,
+				}).Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
 			case ecs.ErrCodeClusterNotFoundException:
-				log.Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
+				log.WithFields(log.Fields{
+					"event": "ERROR_ECS_CLUSTER_NOT_FOUND",
+					"err":   aerr,
+				}).Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
 			default:
-				log.Println(aerr.Error())
+				log.WithFields(log.Fields{
+					"event": "ERROR_ECS_UNHANDLED_ERROR",
+					"err":   aerr,
+				}).Println(aerr.Error())
 			}
 		} else {
-			log.Println(err.Error())
+			log.WithFields(log.Fields{
+				"event": "ERROR_UNKNOWN_ERROR",
+				"err":   err,
+			}).Println(err.Error())
 		}
 	}
 }
@@ -592,6 +613,14 @@ func main() {
 	svc := ecs.New(config)
 	svcec2 := ec2.New(config)
 
+	if !terminal.IsTerminal(int(os.Stdout.Fd())) {
+		log.SetFormatter(&log.JSONFormatter{})
+	}
+
+	log.WithFields(log.Fields{
+		"event": "STARTED",
+	}).Info("ECS service discovery is running.")
+
 	work := func() {
 		var clusters *ecs.ListClustersOutput
 
@@ -640,16 +669,16 @@ func main() {
 			logError(err)
 			return
 		}
-		log.Printf("Writing %d discovered exporters to %s", len(infos), *outFile)
-		err = ioutil.WriteFile(*outFile, m, 0644)
+		log.Printf("Writing %d discovered exporters to %s", len(infos), outFile)
+		err = ioutil.WriteFile(outFile, m, 0644)
 		if err != nil {
 			logError(err)
 			return
 		}
 	}
 	s := time.NewTimer(1 * time.Millisecond)
-	t := time.NewTicker(*interval)
-	n := *times
+	t := time.NewTicker(interval)
+	n := times
 	for {
 		select {
 		case <-s.C:
@@ -657,7 +686,7 @@ func main() {
 		}
 		work()
 		n = n - 1
-		if *times > 0 && n == 0 {
+		if times > 0 && n == 0 {
 			break
 		}
 	}

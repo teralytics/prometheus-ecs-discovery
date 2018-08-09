@@ -1,0 +1,102 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Prometheus ECS service dicscovery service for Operations & Reliability, runs on the existing ECS cluster.
+
+Parameters:
+
+  SplunkHecToken:
+    Type: String
+    Description: Find this at https://financialtimes.splunkcloud.com/en-GB/manager/financial_times_production/http-eventcollector.
+    NoEcho: true
+
+  DockerRevision:
+    Type: String
+
+  ServiceName:
+    Type: String
+    Default: "prometheus-ecs-discovery"
+
+  ClusterCloudformationStack:
+    Type: String
+    Description: The parent CF stack which contains the ECS cluster definition.
+    Default: mon-agg-ecs
+
+Resources:
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceName
+      Volumes:
+        - Name: efs-prometheus
+          Host:
+            SourcePath: /mnt/efs/prometheus
+      ContainerDefinitions:
+        - Name: !Sub "${ServiceName}-eu-west-1-service"
+          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
+          Command:
+            - config.scrape-interval=1m0s
+            # Run as service
+            - config.scrape-times=0
+            - config.write-to=/mnt/efs/prometheus/service-discovery/ecs-service-discovery-eu-west-1.yaml
+          Environment:
+            - Name: AWS_REGION
+              Value: eu-west-1
+          DockerLabels:
+            com.ft.service-name: !Sub "${ServiceName}-eu-west-1--service"
+            com.ft.service-region: !Ref "AWS::Region"
+          MemoryReservation: 64
+          MountPoints:
+            - ContainerPath: /mnt/efs/prometheus
+              SourceVolume: efs-prometheus
+          LogConfiguration:
+            LogDriver: splunk
+            Options:
+              splunk-source: !Sub "${ServiceName}-eu-west-1.${AWS::Region}.in.ft.com"
+              splunk-url: https://http-inputs-financialtimes.splunkcloud.com
+              splunk-token: !Ref SplunkHecToken
+              splunk-format: json
+              splunk-gzip: true
+              tag: "{{.ImageName}}/{{.ImageID}}:{{.Name}}/{{.ID}}"
+              labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
+
+        - Name: !Sub "${ServiceName}-us-east-1-service"
+          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
+          Command:
+            - config.scrape-interval=1m0s
+            # Run as service
+            - config.scrape-times=0
+            - config.write-to=/mnt/efs/prometheus/service-discovery/ecs-service-discovery-us-east-1.yaml
+          Environment:
+            - Name: AWS_REGION
+              Value: us-east-1
+          DockerLabels:
+            com.ft.service-name: !Sub "${ServiceName}-us-east-1-service"
+            com.ft.service-region: !Ref "AWS::Region"
+          MemoryReservation: 64
+          MountPoints:
+            - ContainerPath: /mnt/efs/prometheus
+              SourceVolume: efs-prometheus
+          LogConfiguration:
+            LogDriver: splunk
+            Options:
+              splunk-source: !Sub "${ServiceName}-us-east-1.${AWS::Region}.in.ft.com"
+              splunk-url: https://http-inputs-financialtimes.splunkcloud.com
+              splunk-token: !Ref SplunkHecToken
+              splunk-format: json
+              splunk-gzip: true
+              tag: "{{.ImageName}}/{{.ImageID}}:{{.Name}}/{{.ID}}"
+              labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterCloudformationStack}-Name"
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
