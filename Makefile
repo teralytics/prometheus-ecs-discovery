@@ -86,6 +86,7 @@ deploy-stack: validate-aws-stack-command ## Create the cloudformation stack
 		--template-file deployments/cloudformation.yml \
 		--parameter-overrides \
 			SplunkHecToken=$(SPLUNK_HEC_TOKEN) \
+			DockerRevision="$(DOCKER_TAG)" \
 		--no-fail-on-empty-changeset \
 		--tags \
         	environment="p" \
