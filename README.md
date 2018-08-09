@@ -1,8 +1,13 @@
 # Prometheus Amazon ECS discovery
 
+![CircleCI ](https://img.shields.io/circleci/project/github/Financial-Times/prometheus-ecs-discovery/master.svg)
+
+Forked from [teralytics/prometheus-ecs-discovery](https://github.com/teralytics/prometheus-ecs-discovery). The go codebase is largely the same, aside from using logrus in places and updating versions. There is no dockerhub image provided of the forked repository, so we build it into a docker container in this repository.
+Note: we are use the now legacy label: `com.prometheus-ecs-discovery.port` as the flag `-config.port-label` as this was in a prior version and is used across our codebases.
+
 Prometheus has native Amazon EC2 discovery capabilities, but it does
 not have the capacity to discover ECS instances that can be scraped
-by Prometheus.  This program is a Prometheus File Service Discovery
+by Prometheus. This program is a Prometheus File Service Discovery
 (`file_sd_config`) integration that bridges said gap.
 
 ## Help
@@ -11,24 +16,24 @@ Run `prometheus-ecs-discovery --help` to get information.
 
 The command line parameters that can be used are:
 
-* -config.cluster (string): the name of a cluster to scrape (defaults to scraping all clusters)
-* -config.scrape-interval (duration): interval at which to scrape
-  the AWS API for ECS service discovery information (default 1m0s)
-* -config.scrape-times (int): how many times to scrape before
-  exiting (0 = infinite)
-* -config.write-to (string): path of file to write ECS service
-  discovery information to (default "ecs_file_sd.yml")
-* -config.role-arn (string): ARN of the role to assume when scraping
-  the AWS API (optional)
-* -config.server-name-label (string): Docker label to define the server name
-  (default "PROMETHEUS_EXPORTER_SERVER_NAME")
-* -config.job-name-label (string): Docker label to define the job name
-  (default "PROMETHEUS_EXPORTER_JOB_NAME")
-* -config.path-label (string): Docker label to define the scrape path of the
-  application (default "PROMETHEUS_EXPORTER_PATH")
-* -config.filter-label (string): docker label (and optional value) to filter on "NAME_OF_LABEL[=VALUE]".
-* -config.port-label (string): Docker label to define the scrape port of the application
-  (if missing an application won't be scraped) (default "PROMETHEUS_EXPORTER_PORT")
+-   `-config.cluster` (string): the name of a cluster to scrape (defaults to scraping all clusters)
+-   `-config.scrape-interval` (duration): interval at which to scrape
+    the AWS API for ECS service discovery information (default `1m0s`)
+-   `-config.scrape-times` (int): how many times to scrape before
+    exiting (0 = infinite)
+-   `-config.write-to` (string): path of file to write ECS service
+    discovery information to (default `ecs_file_sd.yml`)
+-   `-config.role-arn` (string): ARN of the role to assume when scraping
+    the AWS API (optional)
+-   `-config.server-name-label` (string): Docker label to define the server name
+    (default `PROMETHEUS_EXPORTER_SERVER_NAME`)
+-   `-config.job-name-label` (string): Docker label to define the job name
+    (default `PROMETHEUS_EXPORTER_JOB_NAME`)
+-   `-config.path-label` (string): Docker label to define the scrape path of the
+    application (default `PROMETHEUS_EXPORTER_PATH`)
+-   `-config.filter-label` (string): docker label (and optional value) to filter on "NAME_OF_LABEL[=VALUE]".
+-   `-config.port-label` (string): Docker label to define the scrape port of the application
+    (if missing an application won't be scraped) (default `PROMETHEUS_EXPORTER_PORT`)
 
 ## Usage
 
@@ -36,47 +41,59 @@ First, build this program using the usual `go get` mechanism.
 
 Then, run it as follows:
 
-* Ensure the program can write to a directory readable by
-  your Prometheus master instance(s).
-* Export the usual `AWS_REGION`, `AWS_ACCESS_KEY_ID` and
-  `AWS_SECRET_ACCESS_KEY` into the environment of the program,
-  making sure that the keys have access to the EC2 / ECS APIs
-  (IAM policies should include `ECS:ListClusters`,
-  `ECS:ListTasks`, `ECS:DescribeTask`, `EC2:DescribeInstances`,
-  `ECS:DescribeContainerInstances`, `ECS:DescribeTasks`,
-  `ECS:DescribeTaskDefinition`). If the program needs to assume
-  a different role to obtain access, this role's ARN may be
-  passed in via the `--config.role-arn` option. This option also
-  allows for cross-account access, depending on which account
-  the role is defined in.
-* Start the program, using the command line option
-  `-config.write-to` to point the program to the specific
-  folder that your Prometheus master can read from.
-* Add a `file_sd_config` to your Prometheus master:
+-   Ensure the program can write to a directory readable by
+    your Prometheus master instance(s).
+-   Export the usual `AWS_REGION`, `AWS_ACCESS_KEY_ID` and
+    `AWS_SECRET_ACCESS_KEY` into the environment of the program,
+    making sure that the keys have access to the EC2 / ECS APIs
+    (IAM policies should include `ECS:ListClusters`,
+    `ECS:ListTasks`, `ECS:DescribeTask`, `EC2:DescribeInstances`,
+    `ECS:DescribeContainerInstances`, `ECS:DescribeTasks`,
+    `ECS:DescribeTaskDefinition`). If the program needs to assume
+    a different role to obtain access, this role's ARN may be
+    passed in via the `--config.role-arn` option. This option also
+    allows for cross-account access, depending on which account
+    the role is defined in.
+-   Start the program, using the command line option
+    `-write-to` to point the program to the specific
+    folder that your Prometheus master can read from.
+-   Add a `file_sd_config` to your Prometheus master:
 
-```
+```yaml
 scrape_configs:
-- job_name: ecs
-  file_sd_configs:
-    - files:
-      - /path/to/ecs_file_sd.yml
-      refresh_interval: 10m
-  # Drop unwanted labels using the labeldrop action
-  metric_relabel_configs:
-    - regex: task_arn
-      action: labeldrop
+    - job_name: ecs
+      file_sd_configs:
+          - files:
+                - /path/to/ecs_file_sd.yml
+            refresh_interval: 10m
+      # Drop unwanted labels using the labeldrop action
+      metric_relabel_configs:
+          - regex: task_arn
+            action: labeldrop
 ```
 
 To scrape the containers add following docker labels to them:
 
-* `PROMETHEUS_EXPORTER_PORT` specify the container port where prometheus scrapes (mandatory)
-* `PROMETHEUS_EXPORTER_SERVER_NAME` specify the hostname here, per default ip is used (optional)
-* `PROMETHEUS_EXPORTER_JOB_NAME` specify job name here (optional)
-* `PROMETHEUS_EXPORTER_PATH` specify alternative scrape path here (optional)
+-   `PROMETHEUS_EXPORTER_PORT` specify the container port where prometheus scrapes (mandatory)
+-   `PROMETHEUS_EXPORTER_SERVER_NAME` specify the hostname here, per default ip is used (optional)
+-   `PROMETHEUS_EXPORTER_JOB_NAME` specify job name here (optional)
+-   `PROMETHEUS_EXPORTER_PATH` specify alternative scrape path here (optional)
 
-That's it.  You should begin seeing the program scraping the
+That's it. You should begin seeing the program scraping the
 AWS APIs and writing the discovery file (by default it does
 that every minute, and by default Prometheus will reload the
-file the minute it is written).  After reloading your Prometheus
+file the minute it is written). After reloading your Prometheus
 master configuration, this program will begin informing via
 the discovery file of new targets that Prometheus must scrape.
+
+## Development
+
+### CircleCI
+
+Currently no environment variables are defined on the CircleCI project. Any in use are pulled from a shared CircleCI [context](https://circleci.com/docs/2.0/contexts/).
+
+### Local Development
+
+Use the Makefile to locally test your changes. The `make build` command will create a new local docker image, then the `make run` command will execute these changes locally.
+
+The service discovery file should be written to `file_sd_config.yml` in the current directory.

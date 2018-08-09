@@ -15,13 +15,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
@@ -30,6 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/go-yaml/yaml"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 type labels struct {
@@ -61,34 +65,28 @@ var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EX
 func logError(err error) {
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			switch aerr.Code() {
-			case ecs.ErrCodeServerException:
-				log.Println(ecs.ErrCodeServerException, aerr.Error())
-			case ecs.ErrCodeClientException:
-				log.Println(ecs.ErrCodeClientException, aerr.Error())
-			case ecs.ErrCodeInvalidParameterException:
-				log.Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
-			case ecs.ErrCodeClusterNotFoundException:
-				log.Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
-			default:
-				log.Println(aerr.Error())
-			}
+			log.WithError(aerr).WithFields(log.Fields{
+				"event":         aerr.Code(),
+				"originalError": aerr.OrigErr(),
+				"errMessage":    aerr.Message(),
+			}).Error(aerr.Error())
 		} else {
-			log.Println(err.Error())
+			log.WithFields(log.Fields{
+				"event": "ERROR_UNKNOWN_ERROR",
+				"err":   err,
+			}).Println(err.Error())
 		}
 	}
 }
 
 // GetClusters retrieves a list of *ClusterArns from Amazon ECS,
 // dealing with the mandatory pagination as needed.
-func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
+func GetClusters(svc *ecs.Client) (*ecs.ListClustersOutput, error) {
 	input := &ecs.ListClustersInput{}
 	output := &ecs.ListClustersOutput{}
 	for {
 		req := svc.ListClustersRequest(input)
-		myoutput, err := req.Send()
+		myoutput, err := req.Send(context.Background())
 		if err != nil {
 			return nil, err
 		}
@@ -188,8 +186,8 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		var d ecs.ContainerDefinition
 		for _, d = range t.TaskDefinition.ContainerDefinitions {
 			if *i.Name == *d.Name {
-				// Aha, the container definition matchis this container we
-				// are inspecting, stop the loop cos we got the D now.
+				// Aha, the container definition matches this container we
+				// are inspecting, stop the loop because we got the task definition now.
 				break
 			}
 		}
@@ -278,7 +276,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 
 // AddTaskDefinitionsOfTasks adds to each Task the TaskDefinition
 // corresponding to it.
-func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
+func AddTaskDefinitionsOfTasks(svc *ecs.Client, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
 	task2def := make(map[string]*ecs.TaskDefinition)
 	for _, task := range taskList {
 		task2def[*task.TaskDefinitionArn] = nil
@@ -286,7 +284,7 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 
 	jobs := make(chan *ecs.DescribeTaskDefinitionInput, len(task2def))
 	results := make(chan struct {
-		out *ecs.DescribeTaskDefinitionOutput
+		out *ecs.DescribeTaskDefinitionResponse
 		err error
 	}, len(task2def))
 
@@ -294,9 +292,9 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 		go func() {
 			for in := range jobs {
 				req := svc.DescribeTaskDefinitionRequest(in)
-				out, err := req.Send()
+				out, err := req.Send(context.Background())
 				results <- struct {
-					out *ecs.DescribeTaskDefinitionOutput
+					out *ecs.DescribeTaskDefinitionResponse
 					err error
 				}{out, err}
 			}
@@ -358,7 +356,7 @@ func SplitArray(a []string, size int) [][]string {
 // DescribeInstancesUnpaginated describes a list of EC2 instances.
 // It is unpaginated because the API function does not require
 // pagination.
-func DescribeInstancesUnpaginated(svc *ec2.EC2, instanceIds []string) ([]ec2.Instance, error) {
+func DescribeInstancesUnpaginated(svc *ec2.Client, instanceIds []string) ([]ec2.Instance, error) {
 	if len(instanceIds) == 0 {
 		return nil, nil
 	}
@@ -370,7 +368,7 @@ func DescribeInstancesUnpaginated(svc *ec2.EC2, instanceIds []string) ([]ec2.Ins
 		}
 		for {
 			req := svc.DescribeInstancesRequest(input)
-			output, err := req.Send()
+			output, err := req.Send(context.Background())
 			if err != nil {
 				return nil, err
 			}
@@ -393,7 +391,7 @@ func DescribeInstancesUnpaginated(svc *ec2.EC2, instanceIds []string) ([]ec2.Ins
 
 // AddContainerInstancesToTasks adds to each Task the EC2 instance
 // running its containers.
-func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
+func AddContainerInstancesToTasks(svc *ecs.Client, svcec2 *ec2.Client, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
 
 	clusterArnToContainerInstancesArns := make(map[string]map[string]*ecs.ContainerInstance)
 	for _, task := range taskList {
@@ -419,7 +417,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 				ContainerInstances: chunkedKeys,
 			}
 			req := svc.DescribeContainerInstancesRequest(input)
-			output, err := req.Send()
+			output, err := req.Send(context.Background())
 			if err != nil {
 				return nil, err
 			}
@@ -473,7 +471,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 }
 
 // GetTasksOfClusters returns the EC2 tasks running in a list of Clusters.
-func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]ecs.Task, error) {
+func GetTasksOfClusters(svc *ecs.Client, svcec2 *ec2.Client, clusterArns []*string) ([]ecs.Task, error) {
 	jobs := make(chan *string, len(clusterArns))
 	results := make(chan struct {
 		out *ecs.DescribeTasksOutput
@@ -490,7 +488,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 				var err error
 				for {
 					req := svc.ListTasksRequest(input)
-					output, err1 := req.Send()
+					output, err1 := req.Send(context.Background())
 					if err1 != nil {
 						err = err1
 						log.Printf("Error listing tasks of cluster %s: %s", *clusterArn, err)
@@ -504,7 +502,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 						Cluster: clusterArn,
 						Tasks:   output.TaskArns,
 					})
-					descOutput, err2 := reqDescribe.Send()
+					descOutput, err2 := reqDescribe.Send(context.Background())
 					if err2 != nil {
 						err = err2
 						log.Printf("Error describing tasks of cluster %s: %s", *clusterArn, err)
@@ -550,7 +548,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 
 // GetAugmentedTasks gets the fully AugmentedTasks running on
 // a list of Clusters.
-func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]*AugmentedTask, error) {
+func GetAugmentedTasks(svc *ecs.Client, svcec2 *ec2.Client, clusterArns []*string) ([]*AugmentedTask, error) {
 	simpleTasks, err := GetTasksOfClusters(svc, svcec2, clusterArns)
 	if err != nil {
 		return nil, err
@@ -592,13 +590,23 @@ func main() {
 	svc := ecs.New(config)
 	svcec2 := ec2.New(config)
 
+	if !terminal.IsTerminal(int(os.Stdout.Fd())) {
+		log.SetFormatter(&log.JSONFormatter{})
+	}
+
+	log.WithFields(log.Fields{
+		"event":          "STARTED",
+		"outputFile":     outFile,
+		"scrapeInterval": interval.Seconds(),
+	}).Info("ECS service discovery is running.")
+
 	work := func() {
 		var clusters *ecs.ListClustersOutput
 
 		if *cluster != "" {
 			res, err := svc.DescribeClustersRequest(&ecs.DescribeClustersInput{
 				Clusters: []string{*cluster},
-			}).Send()
+			}).Send(context.Background())
 			if err != nil {
 				logError(err)
 				return

@@ -1,0 +1,109 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Prometheus ECS service discovery service for Operations & Reliability, runs on the existing ECS cluster.
+
+Parameters:
+
+  SplunkHecToken:
+    Type: String
+    Description: Find this at https://financialtimes.splunkcloud.com/en-GB/manager/financial_times_production/http-eventcollector.
+    NoEcho: true
+
+  DockerRevision:
+    Type: String
+
+  ServiceName:
+    Type: String
+    Default: "prometheus-ecs-discovery"
+
+  ParentClusterStackName:
+    Type: String
+    Description: The parent CF stack which contains the ECS cluster definition.
+
+  TaskRoleName:
+    Type: String
+    Description: The IAM role name with permissions to access the AWS ECS APIs.
+    Default: FTApplicationRoleFor_prometheus-ecs-discovery
+
+Resources:
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceName
+      Volumes:
+        - Name: efs-prometheus
+          Host:
+            SourcePath: /mnt/efs/prometheus/service-discovery
+      TaskRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${TaskRoleName}
+      ContainerDefinitions:
+        - Name: !Sub "${ServiceName}-eu-west-1-service"
+          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
+          Command:
+            - -config.scrape-interval=1m0s
+            - -config.scrape-times=0
+            - -config.write-to=/service-discovery/ecs-service-discovery-eu-west-1.yaml
+            # use legacy config label as we use this on our infra already
+            - -config.port-label=com.prometheus-ecs-discovery.port
+          Environment:
+            - Name: AWS_REGION
+              Value: eu-west-1
+          DockerLabels:
+            com.ft.service-name: !Sub "${ServiceName}-eu-west-1--service"
+            com.ft.service-region: !Ref "AWS::Region"
+          MemoryReservation: 25
+          MountPoints:
+            - ContainerPath: /service-discovery
+              SourceVolume: efs-prometheus
+          LogConfiguration:
+            LogDriver: splunk
+            Options:
+              splunk-source: !Sub "${ServiceName}-eu-west-1.${AWS::Region}.in.ft.com"
+              splunk-url: https://http-inputs-financialtimes.splunkcloud.com
+              splunk-token: !Ref SplunkHecToken
+              splunk-format: json
+              splunk-gzip: true
+              tag: "{{.ImageName}}/{{.ImageID}}:{{.Name}}/{{.ID}}"
+              labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
+
+        - Name: !Sub "${ServiceName}-us-east-1-service"
+          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
+          Command:
+            - -config.scrape-interval=1m0s
+            - -config.scrape-times=0
+            - -config.write-to=/service-discovery/ecs-service-discovery-us-east-1.yaml
+            # use legacy config label as we use this on our infra already
+            - -config.port-label=com.prometheus-ecs-discovery.port
+          Environment:
+            - Name: AWS_REGION
+              Value: us-east-1
+          DockerLabels:
+            com.ft.service-name: !Sub "${ServiceName}-us-east-1-service"
+            com.ft.service-region: !Ref "AWS::Region"
+          MemoryReservation: 25
+          MountPoints:
+            - ContainerPath: /service-discovery
+              SourceVolume: efs-prometheus
+          LogConfiguration:
+            LogDriver: splunk
+            Options:
+              splunk-source: !Sub "${ServiceName}-us-east-1.${AWS::Region}.in.ft.com"
+              splunk-url: https://http-inputs-financialtimes.splunkcloud.com
+              splunk-token: !Ref SplunkHecToken
+              splunk-format: json
+              splunk-gzip: true
+              tag: "{{.ImageName}}/{{.ImageID}}:{{.Name}}/{{.ID}}"
+              labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentClusterStackName}-Name"
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
