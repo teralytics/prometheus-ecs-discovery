@@ -82,12 +82,13 @@ publish: ## Push the docker image to the FT private repository.
 
 validate-aws-stack-command:
 	@if [[ -z "$(AWS)" ]]; then echo "❌ $(RED)AWS is not available please install aws-cli. See https://aws.amazon.com/cli/" && exit 1; fi
+	@if [[ -z "$(ECS_CLUSTER_NAME)" ]]; then echo "❌ $(RED)ECS_CLUSTER_NAME is not available. Please specify the ECS cluster to deploy to" && exit 1; fi
 	@if [[ -z "$(SPLUNK_HEC_TOKEN)" ]]; then echo "❌ $(RED)SPLUNK_HEC_TOKEN is not available. $(NO_COLOUR)This is a required variable for cloudformation deployments" && exit 1; fi
 
 deploy-stack: validate-aws-stack-command ## Create the cloudformation stack
 	@printf '%b\n' ">> $(TEAL)deploying cloudformation stack"
 	@aws cloudformation deploy \
-		--stack-name "mon-agg-ecs-service-$(REPO_NAME)" \
+		--stack-name "$(ECS_CLUSTER_NAME)-service_$(REPO_NAME)" \
 		--template-file deployments/cloudformation.yml \
 		--parameter-overrides \
 			ParentClusterStackName=$(ECS_CLUSTER_NAME) \

@@ -21,7 +21,6 @@ Parameters:
   ParentClusterStackName:
     Type: String
     Description: The parent CF stack which contains the ECS cluster definition.
-    Default: mon-agg-ecs
 
   TaskRoleName:
     Type: String
