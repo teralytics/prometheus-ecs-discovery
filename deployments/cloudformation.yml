@@ -23,10 +23,10 @@ Parameters:
     Description: The parent CF stack which contains the ECS cluster definition.
     Default: mon-agg-ecs
 
-  TaskRoleArn:
+  TaskRoleName:
     Type: String
-    Description: The IAM role with permissions to access the AWS ECS APIs.
-    Default: !Sub arn:aws:iam::${AWS::AccountId}:role/FTApplicationRoleFor_prometheus-ecs-discovery
+    Description: The IAM role name with permissions to access the AWS ECS APIs.
+    Default: FTApplicationRoleFor_prometheus-ecs-discovery
 
 Resources:
 
@@ -38,7 +38,7 @@ Resources:
         - Name: efs-prometheus
           Host:
             SourcePath: /mnt/efs/prometheus
-      TaskRoleArn: !Ref TaskRoleArn
+      TaskRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/{TaskRoleArn}
       ContainerDefinitions:
         - Name: !Sub "${ServiceName}-eu-west-1-service"
           Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
