@@ -2,7 +2,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  Prometheus ECS service dicscovery service for Operations & Reliability, runs on the existing ECS cluster.
+  Prometheus ECS service discovery service for Operations & Reliability, runs on the existing ECS cluster.
 
 Parameters:
 
