@@ -18,7 +18,7 @@ Parameters:
     Type: String
     Default: "prometheus-ecs-discovery"
 
-  ClusterCloudformationStack:
+  ParentClusterStackName:
     Type: String
     Description: The parent CF stack which contains the ECS cluster definition.
     Default: mon-agg-ecs
@@ -100,7 +100,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       Cluster:
-        Fn::ImportValue: !Sub "${ClusterCloudformationStack}-Name"
+        Fn::ImportValue: !Sub "${ParentClusterStackName}-Name"
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: 1
       DeploymentConfiguration:

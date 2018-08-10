@@ -90,6 +90,7 @@ deploy-stack: validate-aws-stack-command ## Create the cloudformation stack
 		--stack-name "mon-agg-ecs-service-$(REPO_NAME)" \
 		--template-file deployments/cloudformation.yml \
 		--parameter-overrides \
+			ParentClusterStackName=$(ECS_CLUSTER_NAME) \
 			SplunkHecToken=$(SPLUNK_HEC_TOKEN) \
 			DockerRevision="$(DOCKER_TAG)" \
 		--no-fail-on-empty-changeset \
