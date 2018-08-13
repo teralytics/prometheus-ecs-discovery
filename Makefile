@@ -88,7 +88,7 @@ validate-aws-stack-command:
 deploy-stack: validate-aws-stack-command ## Create the cloudformation stack
 	@printf '%b\n' ">> $(TEAL)deploying cloudformation stack"
 	@aws cloudformation deploy \
-		--stack-name "$(ECS_CLUSTER_NAME)-service_$(REPO_NAME)" \
+		--stack-name "$(ECS_CLUSTER_NAME)-service-$(REPO_NAME)" \
 		--template-file deployments/cloudformation.yml \
 		--parameter-overrides \
 			ParentClusterStackName=$(ECS_CLUSTER_NAME) \
