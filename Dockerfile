@@ -57,4 +57,4 @@ LABEL maintainer="reliability.engineering@ft.com" \
     org.opencontainers.url="https://biz-ops.in.ft.com/System/prometheus-ecs-discovery" \
     org.opencontainers.vendor="financial-times"
 
-CMD ["ecs-discovery"]
+ENTRYPOINT ["ecs-discovery"]

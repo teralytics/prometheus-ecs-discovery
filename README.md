@@ -54,7 +54,7 @@ Then, run it as follows:
     allows for cross-account access, depending on which account
     the role is defined in.
 -   Start the program, using the command line option
-    `-config.write-to` to point the program to the specific
+    `-write-to` to point the program to the specific
     folder that your Prometheus master can read from.
 -   Add a `file_sd_config` to your Prometheus master:
 

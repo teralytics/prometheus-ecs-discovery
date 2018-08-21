@@ -42,10 +42,9 @@ Resources:
         - Name: !Sub "${ServiceName}-eu-west-1-service"
           Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
           Command:
-            - config.scrape-interval=1m0s
-            # Run as service
-            - config.scrape-times=0
-            - config.write-to=/service-discovery/ecs-service-discovery-eu-west-1.yaml
+            - -config.scrape-interval=1m0s
+            - -config.scrape-times=0
+            - -config.write-to=/service-discovery/ecs-service-discovery-eu-west-1.yaml
           Environment:
             - Name: AWS_REGION
               Value: eu-west-1
@@ -70,10 +69,9 @@ Resources:
         - Name: !Sub "${ServiceName}-us-east-1-service"
           Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
           Command:
-            - config.scrape-interval=1m0s
-            # Run as service
-            - config.scrape-times=0
-            - config.write-to=/service-discovery/ecs-service-discovery-us-east-1.yaml
+            - -config.scrape-interval=1m0s
+            - -config.scrape-times=0
+            - -config.write-to=/service-discovery/ecs-service-discovery-us-east-1.yaml
           Environment:
             - Name: AWS_REGION
               Value: us-east-1
