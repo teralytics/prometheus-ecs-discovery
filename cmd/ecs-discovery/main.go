@@ -620,7 +620,7 @@ func main() {
 	log.WithFields(log.Fields{
 		"event":          "STARTED",
 		"outputFile":     outFile,
-		"scrapeInterval": interval,
+		"scrapeInterval": interval.Seconds,
 	}).Info("ECS service discovery is running.")
 
 	work := func() {
