@@ -45,7 +45,7 @@ Resources:
             - config.scrape-interval=1m0s
             # Run as service
             - config.scrape-times=0
-            - config.write-to=/mnt/efs/prometheus/service-discovery/ecs-service-discovery-eu-west-1.yaml
+            - config.write-to=/service-discovery/ecs-service-discovery-eu-west-1.yaml
           Environment:
             - Name: AWS_REGION
               Value: eu-west-1
@@ -54,7 +54,7 @@ Resources:
             com.ft.service-region: !Ref "AWS::Region"
           MemoryReservation: 64
           MountPoints:
-            - ContainerPath: /mnt/efs/prometheus
+            - ContainerPath: /service-discovery
               SourceVolume: efs-prometheus
           LogConfiguration:
             LogDriver: splunk
@@ -73,7 +73,7 @@ Resources:
             - config.scrape-interval=1m0s
             # Run as service
             - config.scrape-times=0
-            - config.write-to=/mnt/efs/prometheus/service-discovery/ecs-service-discovery-us-east-1.yaml
+            - config.write-to=/service-discovery/ecs-service-discovery-us-east-1.yaml
           Environment:
             - Name: AWS_REGION
               Value: us-east-1
@@ -82,7 +82,7 @@ Resources:
             com.ft.service-region: !Ref "AWS::Region"
           MemoryReservation: 64
           MountPoints:
-            - ContainerPath: /mnt/efs/prometheus
+            - ContainerPath: /service-discovery
               SourceVolume: efs-prometheus
           LogConfiguration:
             LogDriver: splunk
