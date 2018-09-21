@@ -51,7 +51,7 @@ Resources:
           DockerLabels:
             com.ft.service-name: !Sub "${ServiceName}-eu-west-1--service"
             com.ft.service-region: !Ref "AWS::Region"
-          MemoryReservation: 40
+          MemoryReservation: 25
           MountPoints:
             - ContainerPath: /service-discovery
               SourceVolume: efs-prometheus
@@ -78,7 +78,7 @@ Resources:
           DockerLabels:
             com.ft.service-name: !Sub "${ServiceName}-us-east-1-service"
             com.ft.service-region: !Ref "AWS::Region"
-          MemoryReservation: 40
+          MemoryReservation: 25
           MountPoints:
             - ContainerPath: /service-discovery
               SourceVolume: efs-prometheus
