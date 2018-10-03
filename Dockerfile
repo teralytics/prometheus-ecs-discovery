@@ -1,6 +1,7 @@
 FROM golang:1.10
 WORKDIR /go/src/github.com/teralytics/prometheus-ecs-discovery/
-COPY . .
+COPY main.go .
+RUN go get .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o prometheus-ecs-discovery .
 
 FROM alpine:latest
