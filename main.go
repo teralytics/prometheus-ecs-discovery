@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +27,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/external"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
-	"github.com/fatih/structs"
 	"github.com/go-yaml/yaml"
 )
 
@@ -47,34 +45,6 @@ type labels struct {
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
-var labelsRegex = labels{}
-var labelsRegexMap = make(map[string]interface{})
-
-func registerLabelsMatchesFlags() {
-	flag.StringVar(&labelsRegex.TaskArn, "labels.task_arn_matches", ".*", "the task arn must match with this regex")
-	flag.StringVar(&labelsRegex.TaskName, "labels.task_name_matches", ".*", "the task name must match with this regex")
-	flag.StringVar(&labelsRegex.TaskRevision, "labels.task_revision_matches_matches", ".*", "the task revision must match with this regex")
-	flag.StringVar(&labelsRegex.TaskGroup, "labels.task_group_matches", ".*", "the task group must match with this regex")
-	flag.StringVar(&labelsRegex.ClusterArn, "labels.cluster_arn_matches", ".*", "the task cluster must match with this regex")
-	flag.StringVar(&labelsRegex.ContainerName, "labels.container_name_matches", ".*", "the container name must match with this regex")
-	flag.StringVar(&labelsRegex.ContainerArn, "labels.container_arn_matches", ".*", "the container arn must match with this regex")
-	flag.StringVar(&labelsRegex.DockerImage, "labels.docker_image_matches", ".*", "the docker image arn must match with this regex")
-}
-
-func matchLabelsRegex(labels labels) bool {
-	labelsMap := structs.Map(labels)
-	matches := true
-
-	for k, v := range labelsMap {
-		regexStr, ok := labelsRegexMap[k]
-		if ok {
-			regex := regexp.MustCompile(regexStr.(string))
-			matches = matches && regex.MatchString(v.(string))
-		}
-	}
-
-	return matches
-}
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -270,13 +240,10 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			labels.MetricsPath = exporterPath
 		}
 
-		matches := matchLabelsRegex(labels)
-		if matches {
-			ret = append(ret, &PrometheusTaskInfo{
-				Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
-				Labels:  labels,
-			})
-		}
+		ret = append(ret, &PrometheusTaskInfo{
+			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
+			Labels:  labels,
+		})
 	}
 	return ret
 }
@@ -556,9 +523,7 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 }
 
 func main() {
-	registerLabelsMatchesFlags()
 	flag.Parse()
-	labelsRegexMap = structs.Map(labelsRegex)
 
 	config, err := external.LoadDefaultAWSConfig()
 	if err != nil {
