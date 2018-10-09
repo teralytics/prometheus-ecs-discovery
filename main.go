@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,12 +28,53 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/external"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/fatih/structs"
 	"github.com/go-yaml/yaml"
 )
+
+type labels struct {
+	TaskArn       string `yaml:"task_arn"`
+	TaskName      string `yaml:"task_name"`
+	TaskRevision  string `yaml:"task_revision"`
+	TaskGroup     string `yaml:"task_group"`
+	ClusterArn    string `yaml:"cluster_arn"`
+	ContainerName string `yaml:"container_name"`
+	ContainerArn  string `yaml:"container_arn"`
+	DockerImage   string `yaml:"docker_image"`
+	MetricsPath   string `yaml:"__metrics_path__,omitempty"`
+}
 
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
+var labelsRegex = labels{}
+var labelsRegexMap = make(map[string]interface{})
+
+func registerLabelsMatchesFlags() {
+	flag.StringVar(&labelsRegex.TaskArn, "labels.task_arn_matches", ".*", "the task arn must match with this regex")
+	flag.StringVar(&labelsRegex.TaskName, "labels.task_name_matches", ".*", "the task name must match with this regex")
+	flag.StringVar(&labelsRegex.TaskRevision, "labels.task_revision_matches_matches", ".*", "the task revision must match with this regex")
+	flag.StringVar(&labelsRegex.TaskGroup, "labels.task_group_matches", ".*", "the task group must match with this regex")
+	flag.StringVar(&labelsRegex.ClusterArn, "labels.cluster_arn_matches", ".*", "the task cluster must match with this regex")
+	flag.StringVar(&labelsRegex.ContainerName, "labels.container_name_matches", ".*", "the container name must match with this regex")
+	flag.StringVar(&labelsRegex.ContainerArn, "labels.container_arn_matches", ".*", "the container arn must match with this regex")
+	flag.StringVar(&labelsRegex.DockerImage, "labels.docker_image_matches", ".*", "the docker image arn must match with this regex")
+}
+
+func matchLabelsRegex(labels labels) bool {
+	labelsMap := structs.Map(labels)
+	matches := true
+
+	for k, v := range labelsMap {
+		regexStr, ok := labelsRegexMap[k]
+		if ok {
+			regex := regexp.MustCompile(regexStr.(string))
+			matches = matches && regex.MatchString(v.(string))
+		}
+	}
+
+	return matches
+}
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -101,8 +143,8 @@ type PrometheusContainer struct {
 // PrometheusTaskInfo is the final structure that will be
 // output as a Prometheus file service discovery config.
 type PrometheusTaskInfo struct {
-	Targets []string      `yaml:"targets"`
-	Labels  yaml.MapSlice `yaml:"labels"`
+	Targets []string `yaml:"targets"`
+	Labels  labels   `yaml:"labels"`
 }
 
 // ExporterInformation returns a list of []*PrometheusTaskInfo
@@ -212,29 +254,29 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			host = ip
 		}
 
-		labels := yaml.MapSlice{}
-		labels = append(labels,
-			yaml.MapItem{"task_arn", *t.TaskArn},
-			yaml.MapItem{"task_name", *t.TaskDefinition.Family},
-			yaml.MapItem{"task_revision", fmt.Sprintf("%d", *t.TaskDefinition.Revision)},
-			yaml.MapItem{"task_group", *t.Group},
-			yaml.MapItem{"cluster_arn", *t.ClusterArn},
-			yaml.MapItem{"container_name", *i.Name},
-			yaml.MapItem{"container_arn", *i.ContainerArn},
-			yaml.MapItem{"docker_image", *d.Image},
-		)
+		labels := labels{
+			TaskArn:       *t.TaskArn,
+			TaskName:      *t.TaskDefinition.Family,
+			TaskRevision:  fmt.Sprintf("%d", *t.TaskDefinition.Revision),
+			TaskGroup:     *t.Group,
+			ClusterArn:    *t.ClusterArn,
+			ContainerName: *i.Name,
+			ContainerArn:  *i.ContainerArn,
+			DockerImage:   *d.Image,
+		}
 
 		exporterPath, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PATH"]
 		if ok {
-			labels = append(labels,
-				yaml.MapItem{"__metrics_path__", exporterPath},
-			)
+			labels.MetricsPath = exporterPath
 		}
 
-		ret = append(ret, &PrometheusTaskInfo{
-			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
-			Labels:  labels,
-		})
+		matches := matchLabelsRegex(labels)
+		if matches {
+			ret = append(ret, &PrometheusTaskInfo{
+				Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
+				Labels:  labels,
+			})
+		}
 	}
 	return ret
 }
@@ -479,10 +521,9 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 		result := <-results
 		if result.err != nil {
 			return nil, result.err
-		} else {
-			for _, task := range result.out.Tasks {
-				tasks = append(tasks, task)
-			}
+		}
+		for _, task := range result.out.Tasks {
+			tasks = append(tasks, task)
 		}
 	}
 
@@ -515,7 +556,9 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 }
 
 func main() {
+	registerLabelsMatchesFlags()
 	flag.Parse()
+	labelsRegexMap = structs.Map(labelsRegex)
 
 	config, err := external.LoadDefaultAWSConfig()
 	if err != nil {
