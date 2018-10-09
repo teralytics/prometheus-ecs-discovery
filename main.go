@@ -444,7 +444,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 			}
 			instance, ok := instanceIDToEC2Instance[*containerInstance.Ec2InstanceId]
 			if !ok {
-				log.Printf("Cannot find EC2 instance", *containerInstance.Ec2InstanceId)
+				log.Printf("Cannot find EC2 instance %s", *containerInstance.Ec2InstanceId)
 				continue
 			}
 			task.EC2Instance = instance
@@ -539,8 +539,8 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 	}
 
 	tasks := []*AugmentedTask{}
-	for _, t := range simpleTasks {
-		tasks = append(tasks, &AugmentedTask{&t, nil, nil})
+	for i := 0; i < len(simpleTasks); i++ {
+		tasks = append(tasks, &AugmentedTask{&simpleTasks[i], nil, nil})
 	}
 	tasks, err = AddTaskDefinitionsOfTasks(svc, tasks)
 	if err != nil {
