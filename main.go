@@ -23,24 +23,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws/awserr"
-	"github.com/aws/aws-sdk-go-v2/aws/external"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/go-yaml/yaml"
 )
-
-type labels struct {
-	TaskArn       string `yaml:"task_arn"`
-	TaskName      string `yaml:"task_name"`
-	TaskRevision  string `yaml:"task_revision"`
-	TaskGroup     string `yaml:"task_group"`
-	ClusterArn    string `yaml:"cluster_arn"`
-	ContainerName string `yaml:"container_name"`
-	ContainerArn  string `yaml:"container_arn"`
-	DockerImage   string `yaml:"docker_image"`
-	MetricsPath   string `yaml:"__metrics_path__,omitempty"`
-}
 
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
@@ -77,8 +66,7 @@ func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 	input := &ecs.ListClustersInput{}
 	output := &ecs.ListClustersOutput{}
 	for {
-		req := svc.ListClustersRequest(input)
-		myoutput, err := req.Send()
+		myoutput, err := svc.ListClusters(input)
 		if err != nil {
 			return nil, err
 		}
@@ -113,8 +101,8 @@ type PrometheusContainer struct {
 // PrometheusTaskInfo is the final structure that will be
 // output as a Prometheus file service discovery config.
 type PrometheusTaskInfo struct {
-	Targets []string `yaml:"targets"`
-	Labels  labels   `yaml:"labels"`
+	Targets []string      `yaml:"targets"`
+	Labels  yaml.MapSlice `yaml:"labels"`
 }
 
 // ExporterInformation returns a list of []*PrometheusTaskInfo
@@ -148,7 +136,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	var host string
 	var ip string
 
-	if t.LaunchType != ecs.LaunchTypeFargate {
+	if *t.LaunchType != "FARGATE" {
 		if t.EC2Instance == nil {
 			return ret
 		}
@@ -170,7 +158,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	for _, i := range t.Containers {
 		// Let's go over the containers to see which ones are defined
 		// and have a Prometheus exported port.
-		var d ecs.ContainerDefinition
+		var d *ecs.ContainerDefinition
 		for _, d = range t.TaskDefinition.ContainerDefinitions {
 			if *i.Name == *d.Name {
 				// Aha, the container definition matchis this container we
@@ -178,13 +166,13 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				break
 			}
 		}
-		if *i.Name != *d.Name && t.LaunchType != ecs.LaunchTypeFargate {
+		if *i.Name != *d.Name && *t.LaunchType != "FARGATE" {
 			// Nope, no match, this container cannot be exported.  We continue.
 			continue
 		}
-
-		v, ok := d.DockerLabels["PROMETHEUS_EXPORTER_PORT"]
-		if !ok {
+		var v *string
+		var ok bool
+		if v, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PORT"]; !ok {
 			// Nope, no Prometheus-exported port in this container def.
 			// This container is no good.  We continue.
 			continue
@@ -193,9 +181,9 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		var err error
 		var exporterPort int
 		var hostPort int64
-		var exporterServerName string
-		var exporterPath string
-		if exporterPort, err = strconv.Atoi(v); err != nil || exporterPort < 0 {
+		var exporterServerName *string
+		var exporterPath *string
+		if exporterPort, err = strconv.Atoi(*v); err != nil || exporterPort < 0 {
 			// This container has an invalid port definition.
 			// This container is no good.  We continue.
 			continue
@@ -216,28 +204,29 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			hostPort = int64(exporterPort)
 		}
 
-		exporterServerName, ok = d.DockerLabels["PROMETHEUS_EXPORTER_SERVER_NAME"]
-		if ok {
-			host = strings.TrimRight(exporterServerName, "/")
+		if exporterServerName, ok = d.DockerLabels["PROMETHEUS_EXPORTER_SERVER_NAME"]; ok {
+			host = strings.TrimRight(*exporterServerName, "/")
 		} else {
 			// No server name, so fall back to ip address
 			host = ip
 		}
 
-		labels := labels{
-			TaskArn:       *t.TaskArn,
-			TaskName:      *t.TaskDefinition.Family,
-			TaskRevision:  fmt.Sprintf("%d", *t.TaskDefinition.Revision),
-			TaskGroup:     *t.Group,
-			ClusterArn:    *t.ClusterArn,
-			ContainerName: *i.Name,
-			ContainerArn:  *i.ContainerArn,
-			DockerImage:   *d.Image,
-		}
+		labels := yaml.MapSlice{}
+		labels = append(labels,
+			yaml.MapItem{"task_arn", *t.TaskArn},
+			yaml.MapItem{"task_name", *t.TaskDefinition.Family},
+			yaml.MapItem{"task_revision", fmt.Sprintf("%d", *t.TaskDefinition.Revision)},
+			yaml.MapItem{"task_group", *t.Group},
+			yaml.MapItem{"cluster_arn", *t.ClusterArn},
+			yaml.MapItem{"container_name", *i.Name},
+			yaml.MapItem{"container_arn", *i.ContainerArn},
+			yaml.MapItem{"docker_image", *d.Image},
+		)
 
-		exporterPath, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PATH"]
-		if ok {
-			labels.MetricsPath = exporterPath
+		if exporterPath, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PATH"]; ok {
+			labels = append(labels,
+				yaml.MapItem{"__metrics_path__", *exporterPath},
+			)
 		}
 
 		ret = append(ret, &PrometheusTaskInfo{
@@ -265,8 +254,7 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 	for w := 1; w <= 4; w++ {
 		go func() {
 			for in := range jobs {
-				req := svc.DescribeTaskDefinitionRequest(in)
-				out, err := req.Send()
+				out, err := svc.DescribeTaskDefinition(in)
 				results <- struct {
 					out *ecs.DescribeTaskDefinitionOutput
 					err error
@@ -306,7 +294,7 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 // Amazon API.
 func StringToStarString(s []string) []*string {
 	c := make([]*string, 0, len(s))
-	for n := range s {
+	for n, _ := range s {
 		c = append(c, &s[n])
 	}
 	return c
@@ -315,18 +303,17 @@ func StringToStarString(s []string) []*string {
 // DescribeInstancesUnpaginated describes a list of EC2 instances.
 // It is unpaginated because the API function does not require
 // pagination.
-func DescribeInstancesUnpaginated(svc *ec2.EC2, instanceIds []string) ([]ec2.Instance, error) {
+func DescribeInstancesUnpaginated(svcec2 *ec2.EC2, instanceIds []string) ([]*ec2.Instance, error) {
 	if len(instanceIds) == 0 {
 		return nil, nil
 	}
 
 	input := &ec2.DescribeInstancesInput{
-		InstanceIds: instanceIds,
+		InstanceIds: StringToStarString(instanceIds),
 	}
 	finalOutput := &ec2.DescribeInstancesOutput{}
 	for {
-		req := svc.DescribeInstancesRequest(input)
-		output, err := req.Send()
+		output, err := svcec2.DescribeInstances(input)
 		if err != nil {
 			return nil, err
 		}
@@ -337,7 +324,7 @@ func DescribeInstancesUnpaginated(svc *ec2.EC2, instanceIds []string) ([]ec2.Ins
 		}
 		input.NextToken = output.NextToken
 	}
-	result := []ec2.Instance{}
+	result := []*ec2.Instance{}
 	for _, rsv := range finalOutput.Reservations {
 		for _, i := range rsv.Instances {
 			result = append(result, i)
@@ -368,10 +355,9 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 		}
 		input := &ecs.DescribeContainerInstancesInput{
 			Cluster:            &clusterArn,
-			ContainerInstances: keys,
+			ContainerInstances: StringToStarString(keys),
 		}
-		req := svc.DescribeContainerInstancesRequest(input)
-		output, err := req.Send()
+		output, err := svc.DescribeContainerInstances(input)
 		if err != nil {
 			return nil, err
 		}
@@ -380,7 +366,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 			log.Printf("Described %d failures in cluster %s", len(output.Failures), clusterArn)
 		}
 		for _, ci := range output.ContainerInstances {
-			clusterArnToContainerInstancesArns[clusterArn][*ci.ContainerInstanceArn] = &ci
+			clusterArnToContainerInstancesArns[clusterArn][*ci.ContainerInstanceArn] = ci
 			instanceIDToEC2Instance[*ci.Ec2InstanceId] = nil
 		}
 	}
@@ -389,7 +375,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 	}
 
 	keys := make([]string, 0, len(instanceIDToEC2Instance))
-	for id := range instanceIDToEC2Instance {
+	for id, _ := range instanceIDToEC2Instance {
 		keys = append(keys, id)
 	}
 
@@ -399,7 +385,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 	}
 
 	for _, i := range instances {
-		instanceIDToEC2Instance[*i.InstanceId] = &i
+		instanceIDToEC2Instance[*i.InstanceId] = i
 	}
 
 	for _, task := range taskList {
@@ -411,7 +397,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 			}
 			instance, ok := instanceIDToEC2Instance[*containerInstance.Ec2InstanceId]
 			if !ok {
-				log.Printf("Cannot find EC2 instance %s", *containerInstance.Ec2InstanceId)
+				log.Printf("Cannot find EC2 instance", *containerInstance.Ec2InstanceId)
 				continue
 			}
 			task.EC2Instance = instance
@@ -422,7 +408,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 }
 
 // GetTasksOfClusters returns the EC2 tasks running in a list of Clusters.
-func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]ecs.Task, error) {
+func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]*ecs.Task, error) {
 	jobs := make(chan *string, len(clusterArns))
 	results := make(chan struct {
 		out *ecs.DescribeTasksOutput
@@ -438,8 +424,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 				finalOutput := &ecs.DescribeTasksOutput{}
 				var err error
 				for {
-					req := svc.ListTasksRequest(input)
-					output, err1 := req.Send()
+					output, err1 := svc.ListTasks(input)
 					if err1 != nil {
 						err = err1
 						log.Printf("Error listing tasks of cluster %s: %s", *clusterArn, err)
@@ -449,11 +434,10 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 						break
 					}
 					log.Printf("Inspected cluster %s, found %d tasks", *clusterArn, len(output.TaskArns))
-					reqDescribe := svc.DescribeTasksRequest(&ecs.DescribeTasksInput{
+					descOutput, err2 := svc.DescribeTasks(&ecs.DescribeTasksInput{
 						Cluster: clusterArn,
 						Tasks:   output.TaskArns,
 					})
-					descOutput, err2 := reqDescribe.Send()
 					if err2 != nil {
 						err = err2
 						log.Printf("Error describing tasks of cluster %s: %s", *clusterArn, err)
@@ -483,14 +467,15 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 	}
 	close(jobs)
 
-	tasks := []ecs.Task{}
+	tasks := []*ecs.Task{}
 	for range clusterArns {
 		result := <-results
 		if result.err != nil {
 			return nil, result.err
-		}
-		for _, task := range result.out.Tasks {
-			tasks = append(tasks, task)
+		} else {
+			for _, task := range result.out.Tasks {
+				tasks = append(tasks, task)
+			}
 		}
 	}
 
@@ -506,8 +491,8 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 	}
 
 	tasks := []*AugmentedTask{}
-	for i := 0; i < len(simpleTasks); i++ {
-		tasks = append(tasks, &AugmentedTask{&simpleTasks[i], nil, nil})
+	for _, t := range simpleTasks {
+		tasks = append(tasks, &AugmentedTask{t, nil, nil})
 	}
 	tasks, err = AddTaskDefinitionsOfTasks(svc, tasks)
 	if err != nil {
@@ -525,15 +510,12 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 func main() {
 	flag.Parse()
 
-	config, err := external.LoadDefaultAWSConfig()
-	if err != nil {
-		logError(err)
-		return
-	}
+	config := aws.NewConfig().WithCredentialsChainVerboseErrors(true)
 
 	// Initialise AWS Service clients
-	svc := ecs.New(config)
-	svcec2 := ec2.New(config)
+	sess := session.New(config)
+	svc := ecs.New(sess)
+	svcec2 := ec2.New(sess)
 
 	work := func() {
 		clusters, err := GetClusters(svc)
@@ -541,7 +523,7 @@ func main() {
 			logError(err)
 			return
 		}
-		tasks, err := GetAugmentedTasks(svc, svcec2, StringToStarString(clusters.ClusterArns))
+		tasks, err := GetAugmentedTasks(svc, svcec2, clusters.ClusterArns)
 		if err != nil {
 			logError(err)
 			return
