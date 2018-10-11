@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SHORT_COMMIT_HASH="$(git rev-parse --short HEAD)"
+
+if [ $BUILDKITE_BRANCH = 'master' ]; then
+    BRANCH_TAG_PREFIX='master'
+else
+    BRANCH_TAG_PREFIX='branch'
+fi
+
+DOCKER_TAG="$BRANCH_TAG_PREFIX-$SHORT_COMMIT_HASH"
+
+export SHORT_COMMIT_HASH
+export BRANCH_TAG_PREFIX
+export DOCKER_TAG
