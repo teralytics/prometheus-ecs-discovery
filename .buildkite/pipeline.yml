@@ -3,5 +3,3 @@ steps:
     command:
       - "docker build -t $AWS_ECR_URI:$DOCKER_TAG -t $AWS_ECR_URI:latest --build-arg SHORT_COMMIT_HASH=$SHORT_COMMIT_HASH ."
       - "docker push $AWS_ECR_URI:$DOCKER_TAG"
-      - "docker push $AWS_ECR_URI:latest"
-    branches: master
