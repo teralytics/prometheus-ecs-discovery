@@ -399,7 +399,8 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 	}
 
 	for _, i := range instances {
-		instanceIDToEC2Instance[*i.InstanceId] = &i
+        	inst := i
+		instanceIDToEC2Instance[*i.InstanceId] = &inst
 	}
 
 	for _, task := range taskList {
