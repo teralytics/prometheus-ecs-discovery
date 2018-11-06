@@ -39,6 +39,13 @@ test: ## Run the tests 🚀.
 	go test -short $(PACKAGES)
 	@$(DONE)
 
+test-report: ## Run the tests and get junit output.
+	@printf '%b\n' ">> $(TEAL)running tests"
+	go get github.com/jstemmer/go-junit-report
+	mkdir -p ./test-results/go-tests
+	go test -v $(PACKAGES) | go-junit-report -set-exit-code > ./test-results/go-tests/go-test-report.xml
+	@$(DONE)
+
 style: ## Check the formatting of the Go source code.
 	@printf '%b\n' ">> $(TEAL)checking code style"
 	@! gofmt -d $(shell find . -path ./vendor -prune -o -name '*.go' -print) | grep '^'
@@ -62,7 +69,7 @@ _security-login:
 
 _security-login-web: ## Login to snyk if not on CI.
 	@printf '%b\n' ">> $(TEAL)Not on CI, logging into Snyk"
-	snyk auth
+	npx snyk auth
 
 ifeq ($(CI),)
 _security-login: _security-login-web
@@ -71,7 +78,7 @@ endif
 _security-dependencies: _security-login ## Scan dependencies for security vulnerabilities.
 	# TODO: enable once snyk support go modules https://github.com/snyk/snyk/issues/354
 	# @printf '%b\n' ">> $(TEAL)scanning dependencies for vulnerabilities"
-	# snyk test --org=reliability-engineering
+	# npx snyk test --org=reliability-engineering
 	# @$(DONE)
 
 .PHONY: security-monitor
@@ -81,7 +88,7 @@ security-monitor: _security-dependencies-monitor
 _security-dependencies-monitor: ## Update snyk monitored dependencies.
 	# TODO: enable once snyk support go modules https://github.com/snyk/snyk/issues/354
 	# @printf '%b\n' ">> $(TEAL)updating snyk dependencies"
-	# snyk monitor --org=reliability-engineering
+	# npx snyk monitor --org=reliability-engineering
 	# @$(DONE)
 
 build: ## Build the Docker image.

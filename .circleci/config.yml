@@ -12,7 +12,7 @@ executors:
       - image: circleci/golang:1.12-node
   python-node:
     docker:
-      - image: circleci/python-node:3.7
+      - image: circleci/python:3.7-node
 
 commands:
   install_dependencies:
@@ -40,11 +40,11 @@ commands:
           name: Login to the Docker repository
           command: echo "$DOCKER_REGISTRY_PASSWORD" | docker login nexus.in.ft.com:5000 --username "$DOCKER_REGISTRY_USERNAME" --password-stdin
 
-  install_snyk:
+  load_docker_image:
     steps:
       - run:
-          name: Install snyk
-          command: sudo npm install -g snyk
+          name: Load docker images from previous steps
+          command: docker load -i "caches/docker-cache-$CIRCLE_SHA1.tar"
 
 jobs:
   install:
@@ -112,31 +112,29 @@ jobs:
     steps:
       - setup_remote_docker
       - attach_golang_workspace
-      - install_snyk
+      - load_docker_image
 
       - run:
           name: Check dependencies and docker images for vulnerabilities
-          command: |
-            docker load -i "caches/docker-cache-$CIRCLE_SHA1.tar"
-            make security
+          command: make security
 
   publish-revision:
     executor: golang
     steps:
       - setup_remote_docker
       - attach_golang_workspace
+      - load_docker_image
       - docker_login
 
       - run:
           name: Push the Docker image
-          command: |
-            docker load -i "caches/docker-cache-$CIRCLE_SHA1.tar"
-            DOCKER_TAG="$CIRCLE_SHA1" make publish
+          command: DOCKER_TAG="$CIRCLE_SHA1" make publish
 
   deploy-service:
     executor: python-node
     steps:
-      - attach_golang_workspace
+      - attach_workspace:
+          at: ~/project
 
       - run:
           name: Install AWS CLI
@@ -155,7 +153,12 @@ jobs:
           environment:
             AWS_DEFAULT_REGION: us-east-1
 
-      - install_snyk
+  security-monitor:
+    executor: golang-node
+    steps:
+      - setup_remote_docker
+      - attach_golang_workspace
+      - load_docker_image
 
       - run:
           name: Update snyk monitoring
@@ -174,7 +177,7 @@ workflows:
           requires:
             - install
       - security:
-          context: monitoring-agg-ecs-prod
+          context: rel-eng-creds
           requires:
             - install
             - build-image
@@ -192,6 +195,14 @@ workflows:
           context: monitoring-agg-ecs-prod
           requires:
             - publish-revision
+          filters:
+            branches:
+              only:
+                - master
+      - security-monitor:
+          context: rel-eng-creds
+          requires:
+            - deploy-service
           filters:
             branches:
               only:
