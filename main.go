@@ -380,8 +380,9 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 			log.Printf("Described %d failures in cluster %s", len(output.Failures), clusterArn)
 		}
 		for _, ci := range output.ContainerInstances {
-			clusterArnToContainerInstancesArns[clusterArn][*ci.ContainerInstanceArn] = &ci
-			instanceIDToEC2Instance[*ci.Ec2InstanceId] = nil
+			cInst := ci
+			clusterArnToContainerInstancesArns[clusterArn][*cInst.ContainerInstanceArn] = &cInst
+			instanceIDToEC2Instance[*cInst.Ec2InstanceId] = nil
 		}
 	}
 	if len(instanceIDToEC2Instance) == 0 {
@@ -399,7 +400,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 	}
 
 	for _, i := range instances {
-        	inst := i
+		inst := i
 		instanceIDToEC2Instance[*i.InstanceId] = &inst
 	}
 
