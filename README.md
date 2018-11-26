@@ -17,6 +17,8 @@ The command line parameters that can be used are:
   exiting (0 = infinite)
 * -config.write-to (string): path of file to write ECS service
   discovery information to (default "ecs_file_sd.yml")
+* -config.role-arn (string): ARN of the role to assume when scraping
+  the AWS API (optional)
 
 ## Usage
 
@@ -32,7 +34,11 @@ Then, run it as follows:
   (IAM policies should include `ECS:ListClusters`,
   `ECS:ListTasks`, `ECS:DescribeTask`, `EC2:DescribeInstances`,
   `ECS:DescribeContainerInstances`, `ECS:DescribeTasks`,
-  `ECS:DescribeTaskDefinition`).
+  `ECS:DescribeTaskDefinition`). If the program needs to assume
+  a different role to obtain access, this role's ARN may be
+  passed in via the `--config.role-arn` option. This option also
+  allows for cross-account access, depending on which account
+  the role is defined in.
 * Start the program, using the command line option
   `-config.write-to` to point the program to the specific
   folder that your Prometheus master can read from.
