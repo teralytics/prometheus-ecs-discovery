@@ -25,8 +25,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/aws/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/go-yaml/yaml"
 )
 
@@ -45,6 +47,7 @@ type labels struct {
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
+var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -531,6 +534,12 @@ func main() {
 	if err != nil {
 		logError(err)
 		return
+	}
+
+	if *roleArn != "" {
+		// Assume role
+		stsSvc := sts.New(config)
+		config.Credentials = stscreds.NewAssumeRoleProvider(stsSvc, *roleArn)
 	}
 
 	// Initialise AWS Service clients
