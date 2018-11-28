@@ -48,6 +48,9 @@ var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
 var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
+var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
+var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_PATH", "Docker label to define the scrape path of the application")
+var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -186,7 +189,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			continue
 		}
 
-		v, ok := d.DockerLabels["PROMETHEUS_EXPORTER_PORT"]
+		v, ok := d.DockerLabels[*prometheusPortLabel]
 		if !ok {
 			// Nope, no Prometheus-exported port in this container def.
 			// This container is no good.  We continue.
@@ -219,7 +222,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			hostPort = int64(exporterPort)
 		}
 
-		exporterServerName, ok = d.DockerLabels["PROMETHEUS_EXPORTER_SERVER_NAME"]
+		exporterServerName, ok = d.DockerLabels[*prometheusServerNameLabel]
 		if ok {
 			host = strings.TrimRight(exporterServerName, "/")
 		} else {
@@ -238,7 +241,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			DockerImage:   *d.Image,
 		}
 
-		exporterPath, ok = d.DockerLabels["PROMETHEUS_EXPORTER_PATH"]
+		exporterPath, ok = d.DockerLabels[*prometheusPathLabel]
 		if ok {
 			labels.MetricsPath = exporterPath
 		}

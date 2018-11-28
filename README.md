@@ -7,7 +7,7 @@ by Prometheus.  This program is a Prometheus File Service Discovery
 
 ## Help
 
-Run `prometheus-ecs-discovery -?` to get information.
+Run `prometheus-ecs-discovery --help` to get information.
 
 The command line parameters that can be used are:
 
@@ -19,6 +19,12 @@ The command line parameters that can be used are:
   discovery information to (default "ecs_file_sd.yml")
 * -config.role-arn (string): ARN of the role to assume when scraping
   the AWS API (optional)
+* -config.server-name-label (string): Docker label to define the server name
+  (default "PROMETHEUS_EXPORTER_SERVER_NAME")
+* -config.path-label (string): Docker label to define the scrape path of the
+  application (default "PROMETHEUS_EXPORTER_PATH")
+* -config.port-label (string): Docker label to define the scrape port of the application
+  (if missing an application won't be scraped) (default "PROMETHEUS_EXPORTER_PORT")
 
 ## Usage
 
