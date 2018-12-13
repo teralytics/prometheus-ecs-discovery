@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
 	"github.com/aws/aws-sdk-go-v2/aws/stscreds"
@@ -47,7 +48,7 @@ type labels struct {
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
-var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
+var roleArns = flag.String("config.role-arns", "", "comma-separated list of role-ARNs to assume when scraping the AWS API (optional)")
 var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
 var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_PATH", "Docker label to define the scrape path of the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
@@ -530,40 +531,59 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 	return tasks, nil
 }
 
+func runDiscovery(config *aws.Config, infos []*PrometheusTaskInfo) []*PrometheusTaskInfo {
+	// Initialise AWS Service clients
+	svc := ecs.New(*config)
+	svcec2 := ec2.New(*config)
+
+	clusters, err := GetClusters(svc)
+	if err != nil {
+		logError(err)
+		return nil
+	}
+	tasks, err := GetAugmentedTasks(svc, svcec2, StringToStarString(clusters.ClusterArns))
+	if err != nil {
+		logError(err)
+		return nil
+	}
+
+	for _, t := range tasks {
+		info := t.ExporterInformation()
+		infos = append(infos, info...)
+	}
+	return infos
+}
+
 func main() {
 	flag.Parse()
 
-	config, err := external.LoadDefaultAWSConfig()
+	defaultConfig, err := external.LoadDefaultAWSConfig()
 	if err != nil {
 		logError(err)
 		return
 	}
 
-	if *roleArn != "" {
-		// Assume role
-		stsSvc := sts.New(config)
-		config.Credentials = stscreds.NewAssumeRoleProvider(stsSvc, *roleArn)
+	roleArns := strings.Split(*roleArns, ",")
+	if roleArns[0] == "" {
+		roleArns = []string{}
 	}
 
-	// Initialise AWS Service clients
-	svc := ecs.New(config)
-	svcec2 := ec2.New(config)
-
 	work := func() {
-		clusters, err := GetClusters(svc)
-		if err != nil {
-			logError(err)
-			return
-		}
-		tasks, err := GetAugmentedTasks(svc, svcec2, StringToStarString(clusters.ClusterArns))
-		if err != nil {
-			logError(err)
-			return
-		}
 		infos := []*PrometheusTaskInfo{}
-		for _, t := range tasks {
-			info := t.ExporterInformation()
-			infos = append(infos, info...)
+		if len(roleArns) > 0 {
+			for _, arn := range roleArns {
+				// Assume role with default config
+				stsSvc := sts.New(defaultConfig)
+				config, err := external.LoadDefaultAWSConfig()
+				if err != nil {
+					logError(err)
+					return
+				}
+				config.Credentials = stscreds.NewAssumeRoleProvider(stsSvc, arn)
+				infos = runDiscovery(&config, infos)
+			}
+		} else {
+			infos = runDiscovery(&defaultConfig, infos)
 		}
 		m, err := yaml.Marshal(infos)
 		if err != nil {
