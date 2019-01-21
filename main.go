@@ -44,6 +44,7 @@ type labels struct {
 	MetricsPath   string `yaml:"__metrics_path__,omitempty"`
 }
 
+var cluster = flag.String("config.cluster", "", "name of the cluster to scrape")
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
@@ -550,11 +551,22 @@ func main() {
 	svcec2 := ec2.New(config)
 
 	work := func() {
-		clusters, err := GetClusters(svc)
-		if err != nil {
-			logError(err)
-			return
+		var clusters *ecs.ListClustersOutput
+
+		if *cluster != "" {
+			clusters = &ecs.ListClustersOutput{
+				ClusterArns: []string{*cluster},
+			}
+		} else {
+			c, err := GetClusters(svc)
+			if err != nil {
+				logError(err)
+				return
+			}
+			clusters = c
+
 		}
+
 		tasks, err := GetAugmentedTasks(svc, svcec2, StringToStarString(clusters.ClusterArns))
 		if err != nil {
 			logError(err)
