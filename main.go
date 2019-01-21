@@ -35,6 +35,7 @@ import (
 type labels struct {
 	TaskArn       string `yaml:"task_arn"`
 	TaskName      string `yaml:"task_name"`
+	JobName       string `yaml:"job,omitempty"`
 	TaskRevision  string `yaml:"task_revision"`
 	TaskGroup     string `yaml:"task_group"`
 	ClusterArn    string `yaml:"cluster_arn"`
@@ -51,6 +52,7 @@ var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when
 var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
 var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_PATH", "Docker label to define the scrape path of the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
+var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -233,6 +235,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		labels := labels{
 			TaskArn:       *t.TaskArn,
 			TaskName:      *t.TaskDefinition.Family,
+			JobName:       d.DockerLabels[*prometheusJobNameLabel],
 			TaskRevision:  fmt.Sprintf("%d", *t.TaskDefinition.Revision),
 			TaskGroup:     *t.Group,
 			ClusterArn:    *t.ClusterArn,
