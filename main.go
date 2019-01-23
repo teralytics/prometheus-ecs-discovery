@@ -554,6 +554,22 @@ func main() {
 		var clusters *ecs.ListClustersOutput
 
 		if *cluster != "" {
+			res, err := svc.DescribeClustersRequest(&ecs.DescribeClustersInput{
+				Clusters: []string{*cluster},
+			}).Send()
+			if err != nil {
+				logError(err)
+				return
+			}
+
+			if len(res.Clusters) == 0 {
+				logError(fmt.Errorf(
+					"%s cluster not found",
+					ecs.ErrCodeClusterNotFoundException,
+				))
+				return
+			}
+
 			clusters = &ecs.ListClustersOutput{
 				ClusterArns: []string{*cluster},
 			}

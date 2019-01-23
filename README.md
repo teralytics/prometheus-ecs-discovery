@@ -11,6 +11,7 @@ Run `prometheus-ecs-discovery --help` to get information.
 
 The command line parameters that can be used are:
 
+* -config.cluster (string): the name of a cluster to scrape (defaults to scraping all clusters)
 * -config.scrape-interval (duration): interval at which to scrape
   the AWS API for ECS service discovery information (default 1m0s)
 * -config.scrape-times (int): how many times to scrape before
