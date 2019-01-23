@@ -19,8 +19,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws/awserr"
@@ -535,6 +538,19 @@ func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]
 
 func main() {
 	flag.Parse()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig,
+		syscall.SIGTERM,
+		syscall.SIGINT)
+
+	go func() {
+		s := <-sig
+		if ss, ok := s.(syscall.Signal); ok {
+			os.Exit(int(ss) + 128)
+		}
+		os.Exit(128)
+	}()
 
 	config, err := external.LoadDefaultAWSConfig()
 	if err != nil {
