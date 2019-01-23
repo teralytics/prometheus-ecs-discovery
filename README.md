@@ -25,6 +25,7 @@ The command line parameters that can be used are:
   (default "PROMETHEUS_EXPORTER_JOB_NAME")
 * -config.path-label (string): Docker label to define the scrape path of the
   application (default "PROMETHEUS_EXPORTER_PATH")
+* -config.filter-label (string): docker label (and optional value) to filter on "NAME_OF_LABEL[=VALUE]".
 * -config.port-label (string): Docker label to define the scrape port of the application
   (if missing an application won't be scraped) (default "PROMETHEUS_EXPORTER_PORT")
 

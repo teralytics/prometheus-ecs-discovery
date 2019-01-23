@@ -51,6 +51,7 @@ var times = flag.Int("config.scrape-times", 0, "how many times to scrape before 
 var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
 var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
 var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_PATH", "Docker label to define the scrape path of the application")
+var prometheusFilterLabel = flag.String("config.filter-label", "", "Docker label (and optionally value) to require to scrape the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
 
@@ -175,6 +176,11 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 
 	}
 
+	var filter []string
+	if *prometheusFilterLabel != "" {
+		filter = strings.Split(*prometheusFilterLabel, "=")
+	}
+
 	for _, i := range t.Containers {
 		// Let's go over the containers to see which ones are defined
 		// and have a Prometheus exported port.
@@ -196,6 +202,18 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			// Nope, no Prometheus-exported port in this container def.
 			// This container is no good.  We continue.
 			continue
+		}
+
+		if len(filter) != 0 {
+			v, ok := d.DockerLabels[filter[0]]
+			if !ok {
+				// Nope, the filter label isn't present.
+				continue
+			}
+			if len(filter) == 2 && v != filter[1] {
+				// Nope, the filter label value doesn't match.
+				continue
+			}
 		}
 
 		var err error
