@@ -580,7 +580,10 @@ func main() {
 					return
 				}
 				config.Credentials = stscreds.NewAssumeRoleProvider(stsSvc, arn)
-				infos = runDiscovery(&config, infos)
+				result := runDiscovery(&config, infos)
+				if result != nil {
+					infos = append(infos, result...)
+				}
 			}
 		} else {
 			infos = runDiscovery(&defaultConfig, infos)
