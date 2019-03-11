@@ -340,6 +340,21 @@ func StringToStarString(s []string) []*string {
 	return c
 }
 
+// SplitArray splits given array into chunks, it's usefull
+// because AWS API has limits on number of elements you can
+// submit via one call.
+func SplitArray(a []string, size int) [][]string {
+	var splitted [][]string
+	for i := 0; i < len(a); i += size {
+		end := i + size
+		if end > len(a) {
+			end = len(a)
+		}
+		splitted = append(splitted, a[i:end])
+	}
+	return splitted
+}
+
 // DescribeInstancesUnpaginated describes a list of EC2 instances.
 // It is unpaginated because the API function does not require
 // pagination.
@@ -347,23 +362,25 @@ func DescribeInstancesUnpaginated(svc *ec2.EC2, instanceIds []string) ([]ec2.Ins
 	if len(instanceIds) == 0 {
 		return nil, nil
 	}
-
-	input := &ec2.DescribeInstancesInput{
-		InstanceIds: instanceIds,
-	}
 	finalOutput := &ec2.DescribeInstancesOutput{}
-	for {
-		req := svc.DescribeInstancesRequest(input)
-		output, err := req.Send()
-		if err != nil {
-			return nil, err
+	splittedInstanceIds := SplitArray(instanceIds, 100)
+	for _, chunkedInstanceIds := range splittedInstanceIds {
+		input := &ec2.DescribeInstancesInput{
+			InstanceIds: chunkedInstanceIds,
 		}
-		log.Printf("Described %d EC2 reservations", len(output.Reservations))
-		finalOutput.Reservations = append(finalOutput.Reservations, output.Reservations...)
-		if output.NextToken == nil {
-			break
+		for {
+			req := svc.DescribeInstancesRequest(input)
+			output, err := req.Send()
+			if err != nil {
+				return nil, err
+			}
+			log.Printf("Described %d EC2 reservations", len(output.Reservations))
+			finalOutput.Reservations = append(finalOutput.Reservations, output.Reservations...)
+			if output.NextToken == nil {
+				break
+			}
+			input.NextToken = output.NextToken
 		}
-		input.NextToken = output.NextToken
 	}
 	result := []ec2.Instance{}
 	for _, rsv := range finalOutput.Reservations {
@@ -394,23 +411,27 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 		for k := range containerInstancesArns {
 			keys = append(keys, k)
 		}
-		input := &ecs.DescribeContainerInstancesInput{
-			Cluster:            &clusterArn,
-			ContainerInstances: keys,
-		}
-		req := svc.DescribeContainerInstancesRequest(input)
-		output, err := req.Send()
-		if err != nil {
-			return nil, err
-		}
 
-		if len(output.Failures) > 0 {
-			log.Printf("Described %d failures in cluster %s", len(output.Failures), clusterArn)
-		}
-		for _, ci := range output.ContainerInstances {
-			cInst := ci
-			clusterArnToContainerInstancesArns[clusterArn][*cInst.ContainerInstanceArn] = &cInst
-			instanceIDToEC2Instance[*cInst.Ec2InstanceId] = nil
+		splittedKeys := SplitArray(keys, 100)
+		for _, chunkedKeys := range splittedKeys {
+			input := &ecs.DescribeContainerInstancesInput{
+				Cluster:            &clusterArn,
+				ContainerInstances: chunkedKeys,
+			}
+			req := svc.DescribeContainerInstancesRequest(input)
+			output, err := req.Send()
+			if err != nil {
+				return nil, err
+			}
+
+			if len(output.Failures) > 0 {
+				log.Printf("Described %d failures in cluster %s", len(output.Failures), clusterArn)
+			}
+			for _, ci := range output.ContainerInstances {
+				cInst := ci
+				clusterArnToContainerInstancesArns[clusterArn][*cInst.ContainerInstanceArn] = &cInst
+				instanceIDToEC2Instance[*cInst.Ec2InstanceId] = nil
+			}
 		}
 	}
 	if len(instanceIDToEC2Instance) == 0 {
