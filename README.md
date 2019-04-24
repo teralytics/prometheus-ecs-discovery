@@ -29,6 +29,8 @@ The command line parameters that can be used are:
 * -config.filter-label (string): docker label (and optional value) to filter on "NAME_OF_LABEL[=VALUE]".
 * -config.port-label (string): Docker label to define the scrape port of the application
   (if missing an application won't be scraped) (default "PROMETHEUS_EXPORTER_PORT")
+* -config.env-vars (string): Docker env variables to expose if they exist
+  (multiple values can be specified, separated by ',')
 
 ## Usage
 
