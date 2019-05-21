@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+    "context"
 
 	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
@@ -88,7 +89,7 @@ func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 	output := &ecs.ListClustersOutput{}
 	for {
 		req := svc.ListClustersRequest(input)
-		myoutput, err := req.Send()
+		myoutput, err := req.Send(context.Background())
 		if err != nil {
 			return nil, err
 		}
@@ -294,7 +295,7 @@ func AddTaskDefinitionsOfTasks(svc *ecs.ECS, taskList []*AugmentedTask) ([]*Augm
 		go func() {
 			for in := range jobs {
 				req := svc.DescribeTaskDefinitionRequest(in)
-				out, err := req.Send()
+				out, err := req.Send(context.Background())
 				results <- struct {
 					out *ecs.DescribeTaskDefinitionOutput
 					err error
@@ -370,7 +371,7 @@ func DescribeInstancesUnpaginated(svc *ec2.EC2, instanceIds []string) ([]ec2.Ins
 		}
 		for {
 			req := svc.DescribeInstancesRequest(input)
-			output, err := req.Send()
+			output, err := req.Send(context.Background())
 			if err != nil {
 				return nil, err
 			}
@@ -419,7 +420,7 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 				ContainerInstances: chunkedKeys,
 			}
 			req := svc.DescribeContainerInstancesRequest(input)
-			output, err := req.Send()
+			output, err := req.Send(context.Background())
 			if err != nil {
 				return nil, err
 			}
@@ -490,7 +491,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 				var err error
 				for {
 					req := svc.ListTasksRequest(input)
-					output, err1 := req.Send()
+					output, err1 := req.Send(context.Background())
 					if err1 != nil {
 						err = err1
 						log.Printf("Error listing tasks of cluster %s: %s", *clusterArn, err)
@@ -504,7 +505,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 						Cluster: clusterArn,
 						Tasks:   output.TaskArns,
 					})
-					descOutput, err2 := reqDescribe.Send()
+					descOutput, err2 := reqDescribe.Send(context.Background())
 					if err2 != nil {
 						err = err2
 						log.Printf("Error describing tasks of cluster %s: %s", *clusterArn, err)
@@ -598,7 +599,7 @@ func main() {
 		if *cluster != "" {
 			res, err := svc.DescribeClustersRequest(&ecs.DescribeClustersInput{
 				Clusters: []string{*cluster},
-			}).Send()
+			}).Send(context.Background())
 			if err != nil {
 				logError(err)
 				return
