@@ -1,4 +1,10 @@
 version: 2.1
+
+
+orbs:
+  aws-cli: circleci/aws-cli@0.1.13
+  change-api: financial-times/change-api@0.22.0
+
 references:
   working_directory: &working_directory
     /go/src/github.com/Financial-Times/prometheus-ecs-discovery
@@ -135,10 +141,7 @@ jobs:
     steps:
       - attach_workspace:
           at: ~/project
-
-      - run:
-          name: Install AWS CLI
-          command: sudo pip install awscli
+      - aws-cli/install
 
       # TODO: add tests for service responsiveness before rolling out multi-region
       - run:
@@ -195,6 +198,17 @@ workflows:
           context: monitoring-agg-ecs-prod
           requires:
             - publish-revision
+          filters:
+            branches:
+              only:
+                - master
+      - change-api/release-log:
+          context: monitoring-agg-ecs-prod
+          requires:
+            - deploy-service
+          systemCode: "prometheus-ecs-discovery"
+          slackChannels: rel-eng-changes
+          environment: "prod"
           filters:
             branches:
               only:
