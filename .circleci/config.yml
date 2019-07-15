@@ -4,10 +4,6 @@ orbs:
   aws-cli: circleci/aws-cli@0.1.13
   change-api: financial-times/change-api@0.22.0
 
-references:
-  working_directory: &working_directory
-    /go/src/github.com/Financial-Times/prometheus-ecs-discovery
-
 executors:
   golang:
     docker:
@@ -56,9 +52,7 @@ jobs:
     executor: golang
     steps:
       - checkout
-
-      - install_dependencies:
-          working_directory: *working_directory
+      - install_dependencies
 
       - persist_to_workspace:
           root: .

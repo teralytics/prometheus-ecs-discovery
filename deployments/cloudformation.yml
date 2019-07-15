@@ -45,6 +45,8 @@ Resources:
             - -config.scrape-interval=1m0s
             - -config.scrape-times=0
             - -config.write-to=/service-discovery/ecs-service-discovery-eu-west-1.yaml
+            # use legacy config label as we use this on our infra already
+            - -config.port-label=com.prometheus-ecs-discovery.port
           Environment:
             - Name: AWS_REGION
               Value: eu-west-1
@@ -72,6 +74,8 @@ Resources:
             - -config.scrape-interval=1m0s
             - -config.scrape-times=0
             - -config.write-to=/service-discovery/ecs-service-discovery-us-east-1.yaml
+            # use legacy config label as we use this on our infra already
+            - -config.port-label=com.prometheus-ecs-discovery.port
           Environment:
             - Name: AWS_REGION
               Value: us-east-1
