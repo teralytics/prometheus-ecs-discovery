@@ -36,7 +36,7 @@ Resources:
       Volumes:
         - Name: efs-prometheus
           Host:
-            SourcePath: /mnt/efs/prometheus
+            SourcePath: /mnt/efs/prometheus/service-discovery
       TaskRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${TaskRoleName}
       ContainerDefinitions:
         - Name: !Sub "${ServiceName}-eu-west-1-service"
