@@ -114,7 +114,7 @@ jobs:
       - load_docker_image
 
       - run:
-          name: Check dependencies and docker images for vulnerabilities
+          name: Check dependencies for vulnerabilities
           command: make security
 
   publish-revision:
