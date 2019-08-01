@@ -8,6 +8,8 @@
 A service which runs on AWS ECS and collates a list of containers also running on AWS ECS so Prometheus can scrape them.
 This allows us to automatically collect runtime metrics from our applications running on ECS and exposing Prometheus metrics on a `/metrics` endpoint.
 
+## More Information
+
 Forked from [teralytics/prometheus-ecs-discovery](https://github.com/teralytics/prometheus-ecs-discovery).
 
 ## Primary URL
@@ -79,7 +81,7 @@ Diagram for the exporter:
 
 ![prometheus-ecs-discovery-architecture](./architecture/prometheus-ecs-discovery-architecture.png)
 
-[View in Lucidchart](https://www.lucidchart.com/invitations/accept/f02d65df-fa2f-4042-b899-0ed0995ebece).
+[View in Lucidchart](https://www.lucidchart.com/invitations/accept/3ef3819f-ff35-4f3f-a393-eecd21ea0d15).
 
 ## Failover Architecture Type
 
