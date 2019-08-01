@@ -10,6 +10,10 @@ not have the capacity to discover ECS instances that can be scraped
 by Prometheus. This program is a Prometheus File Service Discovery
 (`file_sd_config`) integration that bridges said gap.
 
+## Runbook
+
+View [RUNBOOK.md](./RUNBOOK.md).
+
 ## Help
 
 Run `prometheus-ecs-discovery --help` to get information.

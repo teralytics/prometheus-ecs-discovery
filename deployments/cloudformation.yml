@@ -51,7 +51,7 @@ Resources:
             - Name: AWS_REGION
               Value: eu-west-1
           DockerLabels:
-            com.ft.service-name: !Sub "${ServiceName}-eu-west-1--service"
+            com.ft.service-name: !Sub "${ServiceName}-eu-west-1-service"
             com.ft.service-region: !Ref "AWS::Region"
           Cpu: 7
           MemoryReservation: 16
