@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -33,16 +34,17 @@ import (
 )
 
 type labels struct {
-	TaskArn       string `yaml:"task_arn"`
-	TaskName      string `yaml:"task_name"`
-	JobName       string `yaml:"job,omitempty"`
-	TaskRevision  string `yaml:"task_revision"`
-	TaskGroup     string `yaml:"task_group"`
-	ClusterArn    string `yaml:"cluster_arn"`
-	ContainerName string `yaml:"container_name"`
-	ContainerArn  string `yaml:"container_arn"`
-	DockerImage   string `yaml:"docker_image"`
-	MetricsPath   string `yaml:"__metrics_path__,omitempty"`
+	TaskArn       string            `yaml:"task_arn"`
+	TaskName      string            `yaml:"task_name"`
+	JobName       string            `yaml:"job,omitempty"`
+	TaskRevision  string            `yaml:"task_revision"`
+	TaskGroup     string            `yaml:"task_group"`
+	ClusterArn    string            `yaml:"cluster_arn"`
+	ContainerName string            `yaml:"container_name"`
+	ContainerArn  string            `yaml:"container_arn"`
+	DockerImage   string            `yaml:"docker_image"`
+	MetricsPath   string            `yaml:"__metrics_path__,omitempty"`
+	CustomLabels  map[string]string `yaml:",inline,omitempty"`
 }
 
 var cluster = flag.String("config.cluster", "", "name of the cluster to scrape")
@@ -55,6 +57,7 @@ var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_
 var prometheusFilterLabel = flag.String("config.filter-label", "", "Docker label (and optionally value) to require to scrape the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
+var prometheusCustomLabelPrefix = flag.String("config.custom_label_prefix", "PROMETHEUS_EXPORTER_CUSTOM_LABEL_", "Prefix of custom docker labels")
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -153,6 +156,17 @@ type PrometheusTaskInfo struct {
 //                }
 //              ],
 //     ...
+
+func GetCustomLabel(k string, v string) (string, string, error) {
+
+	custom_label := strings.Split(v, ":")
+	if len(custom_label) != 2 {
+		return "nil", "nil", errors.New("Incorrect label format for custom label : " + k)
+	}
+
+	return custom_label[0], custom_label[1], nil
+}
+
 func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	ret := []*PrometheusTaskInfo{}
 	var host string
@@ -222,6 +236,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		var hostPort int64
 		var exporterServerName string
 		var exporterPath string
+		var m map[string]string
 		if exporterPort, err = strconv.Atoi(v); err != nil || exporterPort < 0 {
 			// This container has an invalid port definition.
 			// This container is no good.  We continue.
@@ -251,6 +266,19 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			host = ip
 		}
 
+		m = make(map[string]string)
+		for k, v := range d.DockerLabels {
+			if strings.HasPrefix(k, *prometheusCustomLabelPrefix) {
+				key, val, err := GetCustomLabel(k, v)
+				if err == nil {
+					fmt.Printf("Including label : %s", k)
+					m[key] = val
+				} else {
+					logError(err)
+				}
+			}
+		}
+
 		labels := labels{
 			TaskArn:       *t.TaskArn,
 			TaskName:      *t.TaskDefinition.Family,
@@ -261,6 +289,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			ContainerName: *i.Name,
 			ContainerArn:  *i.ContainerArn,
 			DockerImage:   *d.Image,
+			CustomLabels:  m,
 		}
 
 		exporterPath, ok = d.DockerLabels[*prometheusPathLabel]
