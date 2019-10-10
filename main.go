@@ -157,11 +157,11 @@ type PrometheusTaskInfo struct {
 //              ],
 //     ...
 
-func GetCustomLabel(k string, v string) (string, string, error) {
+func GetCustomLabel(v string) (string, string, error) {
 
 	custom_label := strings.Split(v, ":")
 	if len(custom_label) != 2 {
-		return "nil", "nil", errors.New("Incorrect label format for custom label : " + k)
+		return "", "", errors.New("Incorrect custom label format")
 	}
 
 	return custom_label[0], custom_label[1], nil
@@ -269,12 +269,12 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		m = make(map[string]string)
 		for k, v := range d.DockerLabels {
 			if strings.HasPrefix(k, *prometheusCustomLabelPrefix) {
-				key, val, err := GetCustomLabel(k, v)
+				key, val, err := GetCustomLabel(v)
 				if err == nil {
-					fmt.Printf("Including label : %s", k)
 					m[key] = val
 				} else {
-					logError(err)
+					err_custom_label := errors.New("Skipping label " + k + " in task " + *t.TaskDefinition.Family + " of cluster " + *t.ClusterArn + " : " + err.Error())
+					logError(err_custom_label)
 				}
 			}
 		}
