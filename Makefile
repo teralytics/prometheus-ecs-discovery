@@ -61,34 +61,6 @@ vet: ## Examine the Go source code.
 	go vet $(PACKAGES)
 	@$(DONE)
 
-.PHONY: security
-security: ## Perform security scans. Needs to be run in an environment with the snyk CLI tool.
-security: _security-dependencies
-
-_security-login:
-
-_security-login-web: ## Login to snyk if not on CI.
-	@printf '%b\n' ">> $(TEAL)Not on CI, logging into Snyk"
-	npx snyk auth
-
-ifeq ($(CI),)
-_security-login: _security-login-web
-endif
-
-_security-dependencies: _security-login ## Scan dependencies for security vulnerabilities.
-	@printf '%b\n' ">> $(TEAL)scanning dependencies for vulnerabilities"
-	npx snyk test --org=reliability-engineering
-	@$(DONE)
-
-.PHONY: security-monitor
-security-monitor: ## Update latest monitored dependencies in snyk. Needs to be run in an environment with the snyk CLI tool.
-security-monitor: _security-dependencies-monitor
-
-_security-dependencies-monitor: ## Update snyk monitored dependencies.
-	@printf '%b\n' ">> $(TEAL)updating snyk dependencies"
-	npx snyk monitor --org=reliability-engineering
-	@$(DONE)
-
 build: ## Build the Docker image.
 	@printf '%b\n' ">> $(TEAL)building the docker image"
 	docker build \

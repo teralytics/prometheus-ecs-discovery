@@ -3,6 +3,7 @@ version: 2.1
 orbs:
   aws-cli: circleci/aws-cli@0.1.13
   change-api: financial-times/change-api@0.22.0
+  ft-snyk-orb: financial-times/ft-snyk-orb@0
 
 executors:
   golang:
@@ -106,17 +107,6 @@ jobs:
           paths:
             - .
 
-  security:
-    executor: golang-node
-    steps:
-      - setup_remote_docker
-      - attach_golang_workspace
-      - load_docker_image
-
-      - run:
-          name: Check dependencies for vulnerabilities
-          command: make security
-
   publish-revision:
     executor: golang
     steps:
@@ -149,17 +139,6 @@ jobs:
           environment:
             AWS_DEFAULT_REGION: us-east-1
 
-  security-monitor:
-    executor: golang-node
-    steps:
-      - setup_remote_docker
-      - attach_golang_workspace
-      - load_docker_image
-
-      - run:
-          name: Update snyk monitoring
-          command: DOCKER_TAG="$CIRCLE_SHA1" make security-monitor
-
 workflows:
   version: 2.1
   build-and-deploy:
@@ -172,7 +151,7 @@ workflows:
           context: monitoring-agg-ecs-prod
           requires:
             - install
-      - security:
+      - ft-snyk-orb/scan-go-packages:
           context: rel-eng-creds
           requires:
             - install
@@ -182,7 +161,7 @@ workflows:
           requires:
             - verify
             - build-image
-            - security
+            - ft-snyk-orb/scan-go-packages
           filters:
             branches:
               only:
@@ -206,7 +185,15 @@ workflows:
             branches:
               only:
                 - master
-      - security-monitor:
+      - ft-snyk-orb/scan-and-monitor-go-packages:
+          context: rel-eng-creds
+          requires:
+            - deploy-service
+          filters:
+            branches:
+              only:
+                - master
+      - ft-snyk-orb/scan-and-monitor-docker-images:
           context: rel-eng-creds
           requires:
             - deploy-service
