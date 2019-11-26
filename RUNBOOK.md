@@ -36,6 +36,11 @@ AWS ECS
 
 [reliability-engineering](https://biz-ops.in.ft.com/Team/reliability-engineering)
 
+## Known About By
+
+- nikita.lohia
+- eric.anand
+
 ## First Line Troubleshooting
 
 It may be useful to view the latest targets Prometheus has read from the written config file using the targets interface for the [EU](https://prometheus-eu-west-1.in.ft.com/targets#job-application) and [US](https://prometheus-us-east-1.in.ft.com/targets#job-application) prometheus instances. If this list does not contain any instances, or does not contain the expected instance, it is likely there is an issue with the running of the ECS discovery service, or accessing the ECS API in a given region.
@@ -136,6 +141,6 @@ The systems secrets are set at build time as parameters in the services Cloudfor
 They come from two sources:
 
 1. The CircleCI environment variables for the CircleCI project.
-2. The CircleCI context used in the [CircleCI config](./circleci/config.yml).
+2. The CircleCI context used in the [CircleCI config](https://github.com/Financial-Times/prometheus-ecs-discovery/blob/master/.circleci/config.yml).
 
-See the [README](./README.md) for more details.
+See the [README](https://github.com/Financial-Times/prometheus-ecs-discovery#prometheus-amazon-ecs-discovery) for more details.
