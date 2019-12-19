@@ -169,8 +169,11 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		if len(t.EC2Instance.NetworkInterfaces) == 0 {
 			return ret
 		}
+
 		for _, iface := range t.EC2Instance.NetworkInterfaces {
-			if iface.PrivateIpAddress != nil && *iface.PrivateIpAddress != "" {
+			if iface.PrivateIpAddress != nil && *iface.PrivateIpAddress != "" &&
+				iface.PrivateDnsName != nil && *iface.PrivateDnsName != "" &&
+				*iface.PrivateDnsName == *t.EC2Instance.PrivateDnsName {
 				ip = *iface.PrivateIpAddress
 				break
 			}
