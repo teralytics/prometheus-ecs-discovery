@@ -45,6 +45,9 @@ type labels struct {
 	MetricsPath   string `yaml:"__metrics_path__,omitempty"`
 }
 
+// Docker label for enabling dynamic port detection
+const dynamicPortLabel = "PROMETHEUS_DYNAMIC_EXPORT"
+
 var cluster = flag.String("config.cluster", "", "name of the cluster to scrape")
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
@@ -55,6 +58,7 @@ var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_
 var prometheusFilterLabel = flag.String("config.filter-label", "", "Docker label (and optionally value) to require to scrape the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
+var prometheusDynamicPortDetection = flag.Bool("config.dynamic-port-detection", false, fmt.Sprintf("If true, only tasks with the Docker label %s=1 will be scraped", dynamicPortLabel))
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -184,11 +188,10 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 
 	for _, i := range t.Containers {
 		// Let's go over the containers to see which ones are defined
-		// and have a Prometheus exported port.
 		var d ecs.ContainerDefinition
 		for _, d = range t.TaskDefinition.ContainerDefinitions {
 			if *i.Name == *d.Name {
-				// Aha, the container definition matchis this container we
+				// Aha, the container definition match this container we
 				// are inspecting, stop the loop cos we got the D now.
 				break
 			}
@@ -198,51 +201,71 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			continue
 		}
 
-		v, ok := d.DockerLabels[*prometheusPortLabel]
-		if !ok {
-			// Nope, no Prometheus-exported port in this container def.
-			// This container is no good.  We continue.
-			continue
-		}
-
-		if len(filter) != 0 {
-			v, ok := d.DockerLabels[filter[0]]
-			if !ok {
-				// Nope, the filter label isn't present.
-				continue
-			}
-			if len(filter) == 2 && v != filter[1] {
-				// Nope, the filter label value doesn't match.
-				continue
-			}
-		}
-
-		var err error
-		var exporterPort int
 		var hostPort int64
-		var exporterServerName string
-		var exporterPath string
-		if exporterPort, err = strconv.Atoi(v); err != nil || exporterPort < 0 {
-			// This container has an invalid port definition.
-			// This container is no good.  We continue.
-			continue
-		}
+		if *prometheusDynamicPortDetection {
+			v, ok := d.DockerLabels[dynamicPortLabel]
+			if !ok || v != "1" {
+				// Nope, no Prometheus-exported port in this container def.
+				// This container is no good. We continue.
+				continue
+			}
 
-		if len(i.NetworkBindings) > 0 {
-			for _, nb := range i.NetworkBindings {
-				if int(*nb.ContainerPort) == exporterPort {
-					hostPort = *nb.HostPort
-				}
+			if len(i.NetworkBindings) != 1 {
+				// Dynamic port mapping is only supported with a single binding.
+				// Otherwise, how would we know which port to use?
+				continue
+			}
+
+			if port := i.NetworkBindings[0].HostPort; port != nil {
+				hostPort = *port
 			}
 		} else {
-			for _, ni := range i.NetworkInterfaces {
-				if *ni.PrivateIpv4Address != "" {
-					ip = *ni.PrivateIpv4Address
+			v, ok := d.DockerLabels[*prometheusPortLabel]
+			if !ok {
+				// Nope, no Prometheus-exported port in this container def.
+				// This container is no good.  We continue.
+				continue
+			}
+
+			if len(filter) != 0 {
+				v, ok := d.DockerLabels[filter[0]]
+				if !ok {
+					// Nope, the filter label isn't present.
+					continue
+				}
+				if len(filter) == 2 && v != filter[1] {
+					// Nope, the filter label value doesn't match.
+					continue
 				}
 			}
-			hostPort = int64(exporterPort)
+
+			var exporterPort int
+			var err error
+			if exporterPort, err = strconv.Atoi(v); err != nil || exporterPort < 0 {
+				// This container has an invalid port definition.
+				// This container is no good.  We continue.
+				continue
+			}
+
+			if len(i.NetworkBindings) > 0 {
+				for _, nb := range i.NetworkBindings {
+					if int(*nb.ContainerPort) == exporterPort {
+						hostPort = *nb.HostPort
+					}
+				}
+			} else {
+				for _, ni := range i.NetworkInterfaces {
+					if *ni.PrivateIpv4Address != "" {
+						ip = *ni.PrivateIpv4Address
+					}
+				}
+				hostPort = int64(exporterPort)
+			}
 		}
 
+		var exporterServerName string
+		var exporterPath string
+		var ok bool
 		exporterServerName, ok = d.DockerLabels[*prometheusServerNameLabel]
 		if ok {
 			host = strings.TrimRight(exporterServerName, "/")
