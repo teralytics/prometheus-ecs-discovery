@@ -71,36 +71,36 @@ Resources:
               tag: "{{.ImageName}}/{{.ImageID}}:{{.Name}}/{{.ID}}"
               labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
 
-        - Name: !Sub "${ServiceName}-us-east-1-service"
-          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
-          Command:
-            - -config.scrape-interval=1m0s
-            - -config.scrape-times=0
-            - -config.write-to=/service-discovery/ecs-service-discovery-us-east-1.yaml
-            # use legacy config label as we use this on our infra already
-            - -config.port-label=com.prometheus-ecs-discovery.port
-          Environment:
-            - Name: AWS_REGION
-              Value: us-east-1
-          DockerLabels:
-            com.ft.service-name: !Sub "${ServiceName}-us-east-1-service"
-            com.ft.service-region: !Ref "AWS::Region"
-          Cpu: 7
-          MemoryReservation: 16
-          Memory: 64
-          MountPoints:
-            - ContainerPath: /service-discovery
-              SourceVolume: efs-prometheus
-          LogConfiguration:
-            LogDriver: splunk
-            Options:
-              splunk-source: !Sub "${ServiceName}-us-east-1.${AWS::Region}.in.ft.com"
-              splunk-url: https://http-inputs-financialtimes.splunkcloud.com
-              splunk-token: !Ref SplunkHecToken
-              splunk-format: json
-              splunk-gzip: true
-              tag: "{{.ImageName}}/{{.ImageID}}:{{.Name}}/{{.ID}}"
-              labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
+        # - Name: !Sub "${ServiceName}-us-east-1-service"
+        #   Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
+        #   Command:
+        #     - -config.scrape-interval=1m0s
+        #     - -config.scrape-times=0
+        #     - -config.write-to=/service-discovery/ecs-service-discovery-us-east-1.yaml
+        #     # use legacy config label as we use this on our infra already
+        #     - -config.port-label=com.prometheus-ecs-discovery.port
+        #   Environment:
+        #     - Name: AWS_REGION
+        #       Value: us-east-1
+        #   DockerLabels:
+        #     com.ft.service-name: !Sub "${ServiceName}-us-east-1-service"
+        #     com.ft.service-region: !Ref "AWS::Region"
+        #   Cpu: 7
+        #   MemoryReservation: 16
+        #   Memory: 64
+        #   MountPoints:
+        #     - ContainerPath: /service-discovery
+        #       SourceVolume: efs-prometheus
+        #   LogConfiguration:
+        #     LogDriver: splunk
+        #     Options:
+        #       splunk-source: !Sub "${ServiceName}-us-east-1.${AWS::Region}.in.ft.com"
+        #       splunk-url: https://http-inputs-financialtimes.splunkcloud.com
+        #       splunk-token: !Ref SplunkHecToken
+        #       splunk-format: json
+        #       splunk-gzip: true
+        #       tag: "{{.ImageName}}/{{.ImageID}}:{{.Name}}/{{.ID}}"
+        #       labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
 
   Service:
     Type: AWS::ECS::Service
