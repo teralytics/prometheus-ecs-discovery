@@ -144,51 +144,72 @@ workflows:
   build-and-deploy:
     jobs:
       - install
+
       - verify:
           requires:
             - install
+
       - build-image:
           context: monitoring-agg-ecs-prod
           requires:
             - install
+
       - ft-snyk-orb/scan-go-packages:
           context: rel-eng-creds
           requires:
             - install
             - build-image
+
       - publish-revision:
           context: monitoring-agg-ecs-prod
           requires:
             - verify
             - build-image
             - ft-snyk-orb/scan-go-packages
-          #TODO: uncomment the below before merging to master
-          # filters:
-          #   branches:
-          #     only:
-          #       - master
+          TODO: uncomment the below before merging to master
+          filters:
+            branches:
+              only:
+                - master
+
       - deploy-service:
           name: deploy_test_service
           context: monitoring-agg-ecs-test
           requires:
             - publish-revision
-          #TODO: uncomment the below before merging to master
-          # filters:
-          #   branches:
-          #     only:
-          #       - master
-      - deploy-service:
-          context: monitoring-agg-ecs-prod
-          requires:
-            - publish-revision
+          TODO: uncomment the below before merging to master
           filters:
             branches:
               only:
                 - master
+
+      - change-api/release-log:
+          context: monitoring-agg-ecs-test
+          requires:
+            - deploy_test_service
+          systemCode: "prometheus-ecs-discovery"
+          slackChannels: rel-eng-changes
+          environment: "test"
+          filters:
+            branches:
+              only:
+                - master
+
+      - deploy-service:
+          name: deploy_prod_service
+          context: monitoring-agg-ecs-prod
+          requires:
+            - publish-revision
+            - deploy_test_service
+          filters:
+            branches:
+              only:
+                - master
+
       - change-api/release-log:
           context: monitoring-agg-ecs-prod
           requires:
-            - deploy-service
+            - deploy_prod_service
           systemCode: "prometheus-ecs-discovery"
           slackChannels: rel-eng-changes
           environment: "prod"
@@ -196,18 +217,20 @@ workflows:
             branches:
               only:
                 - master
+
       - ft-snyk-orb/scan-and-monitor-go-packages:
           context: rel-eng-creds
           requires:
-            - deploy-service
+            - deploy_prod_service
           filters:
             branches:
               only:
                 - master
+
       - ft-snyk-orb/scan-and-monitor-docker-images:
           context: rel-eng-creds
           requires:
-            - deploy-service
+            - deploy_prod_service
           filters:
             branches:
               only:
