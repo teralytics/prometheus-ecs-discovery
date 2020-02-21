@@ -166,7 +166,6 @@ workflows:
             - verify
             - build-image
             - ft-snyk-orb/scan-go-packages
-          TODO: uncomment the below before merging to master
           filters:
             branches:
               only:
@@ -177,7 +176,6 @@ workflows:
           context: monitoring-agg-ecs-test
           requires:
             - publish-revision
-          TODO: uncomment the below before merging to master
           filters:
             branches:
               only:
