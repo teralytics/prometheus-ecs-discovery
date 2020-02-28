@@ -32,6 +32,14 @@ else
 REPO_NAME = $(shell basename `git rev-parse --show-toplevel`)
 endif
 
+ENVIRONMENT ?= prod
+ifeq ($(ENVIRONMENT),prod)
+SERVICE_NAME = "$(REPO_NAME)"
+else 
+SERVICE_NAME = "$(REPO_NAME)-test"
+endif
+
+
 all: format build test
 
 test: ## Run the tests 🚀.
@@ -95,16 +103,18 @@ validate-aws-stack-command:
 deploy-stack: validate-aws-stack-command ## Create the cloudformation stack
 	@printf '%b\n' ">> $(TEAL)deploying cloudformation stack"
 	@aws cloudformation deploy \
-		--stack-name "$(ECS_CLUSTER_NAME)-service-$(REPO_NAME)" \
+		--stack-name "$(ECS_CLUSTER_NAME)-service-$(SERVICE_NAME)" \
 		--template-file deployments/cloudformation.yml \
 		--parameter-overrides \
 			ParentClusterStackName=$(ECS_CLUSTER_NAME) \
 			SplunkHecToken=$(SPLUNK_HEC_TOKEN) \
 			DockerRevision="$(DOCKER_TAG)" \
-		--role-arn "arn:aws:iam::442980623726:role/FTDeployRoleFor_mon-agg-ecs-cfn" \
+			DockerImageName="$(REPO_NAME)" \
+			ServiceName="$(SERVICE_NAME)" \
+		--role-arn "arn:aws:iam::"$(AWS_ACCOUNT_ID)":role/FTDeployRoleFor_mon-agg-ecs-cfn" \
 		--no-fail-on-empty-changeset \
 		--tags \
-        	environment="p" \
+        	environment="$(ENVIRONMENT)" \
         	systemCode="$(REPO_NAME)" \
         	teamDL="reliability.engineering@ft.com"
 	@$(DONE)

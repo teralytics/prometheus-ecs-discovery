@@ -1,11 +1,10 @@
 ---
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 
 Description: >
   Prometheus ECS service discovery service for Operations & Reliability, runs on the existing ECS cluster.
 
 Parameters:
-
   SplunkHecToken:
     Type: String
     Description: Find this at https://financialtimes.splunkcloud.com/en-GB/manager/financial_times_production/http-eventcollector.
@@ -14,9 +13,12 @@ Parameters:
   DockerRevision:
     Type: String
 
+  DockerImageName:
+    Type: String
+
   ServiceName:
     Type: String
-    Default: "prometheus-ecs-discovery"
+    Description: The name of the service being deployed.
 
   ParentClusterStackName:
     Type: String
@@ -28,7 +30,6 @@ Parameters:
     Default: FTApplicationRoleFor_prometheus-ecs-discovery
 
 Resources:
-
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -40,7 +41,7 @@ Resources:
       TaskRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${TaskRoleName}
       ContainerDefinitions:
         - Name: !Sub "${ServiceName}-eu-west-1-service"
-          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
+          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${DockerImageName}:${DockerRevision}"
           Command:
             - -config.scrape-interval=1m0s
             - -config.scrape-times=0
@@ -71,7 +72,7 @@ Resources:
               labels: org.opencontainers.revision,org.opencontainers.created,com.ft.build-number,com.ft.service-name,com.ft.service-region
 
         - Name: !Sub "${ServiceName}-us-east-1-service"
-          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${ServiceName}:${DockerRevision}"
+          Image: !Sub "nexus.in.ft.com:5000/operations-reliability/${DockerImageName}:${DockerRevision}"
           Command:
             - -config.scrape-interval=1m0s
             - -config.scrape-times=0
