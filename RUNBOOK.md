@@ -43,7 +43,7 @@ AWS ECS
 
 ## First Line Troubleshooting
 
-It may be useful to view the latest targets Prometheus has read from the written config file using the targets interface for the [EU](https://prometheus-eu-west-1.in.ft.com/targets#job-application) and [US](https://prometheus-us-east-1.in.ft.com/targets#job-application) prometheus instances. If this list does not contain any instances, or does not contain the expected instance, it is likely there is an issue with the running of the ECS discovery service, or accessing the ECS API in a given region.
+It may be useful to view the latest targets Prometheus has read from the written config file using the targets interface for the [EU](https://prometheus-eu-west-1.monitoring.ftops.tech/targets#job-application) and [US](https://prometheus-us-east-1.monitoring.ftops.tech/targets#job-application) prometheus instances. If this list does not contain any instances, or does not contain the expected instance, it is likely there is an issue with the running of the ECS discovery service, or accessing the ECS API in a given region.
 
 AWS credentials are obtained using an ECS task role and so should not require keys or require human intervention due to expiry.
 
@@ -57,7 +57,7 @@ The service discovery component runs two containers per task: each collects serv
 
 The Heimdall Prometheus has some bespoke alarms which are sent to the [#rel-eng-alerts](https://financialtimes.slack.com/messages/C8QL0GY9J) Slack via alertmanager.
 
-These are visible in the [Alertmanager UI](https://alertmanager.in.ft.com/) if they are firing.
+These are visible in the [Alertmanager UI](https://alertmanager.monitoring.ftops.tech/) if they are firing.
 
 There are several Grafana dashboards:
 
