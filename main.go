@@ -69,6 +69,8 @@ func logError(err error) {
 			// Print the error, cast err to awserr.Error to get the Code and
 			// Message from an error.
 			switch aerr.Code() {
+			case ecs.ErrCodeException:
+				log.Println(ecs.ErrCodeException, aerr.Error())
 			case ecs.ErrCodeServerException:
 				log.Println(ecs.ErrCodeServerException, aerr.Error())
 			case ecs.ErrCodeInvalidParameterException:
