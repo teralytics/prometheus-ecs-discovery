@@ -232,12 +232,16 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			var exporterPort int
 			for key := range d.DockerLabels {
 				result := re.FindAllSubmatch([]byte(key), -1)
+				if len(result) == 0 {
+					continue
+				}
+
 				var portString string
 				var portName string
-				if len(result) == 1 || len(result) == 2 {
+				if len(result[0]) == 1 || len(result[0]) == 2 {
 					portString = d.DockerLabels[string(result[0][0])]
 					portName = ""
-				} else if len(result) > 2 {
+				} else if len(result[0]) > 2 {
 					portString = d.DockerLabels[string(result[0][0])]
 					portName = string(result[0][2])
 				} else {
