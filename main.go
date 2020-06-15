@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -203,8 +204,8 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			// Nope, no match, this container cannot be exported.  We continue.
 			continue
 		}
+		portPairs := make(map[string]PortPair)
 
-		var hostPort int64
 		if *prometheusDynamicPortDetection {
 			v, ok := d.DockerLabels[dynamicPortLabel]
 			if !ok || v != "1" {
@@ -220,13 +221,39 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			}
 
 			if port := i.NetworkBindings[0].HostPort; port != nil {
-				hostPort = *port
+				portPairs[""] = PortPair{
+					exporterPort: int(*port),
+					hostPort:     int(*port),
+				}
 			}
 		} else {
-			v, ok := d.DockerLabels[*prometheusPortLabel]
-			if !ok {
-				// Nope, no Prometheus-exported port in this container def.
-				// This container is no good.  We continue.
+			re := regexp.MustCompile(`(` + *prometheusPortLabel + `)(.*)`)
+
+			var exporterPort int
+			for key := range d.DockerLabels {
+				result := re.FindAllSubmatch([]byte(key), -1)
+				var portString string
+				var portName string
+				if len(result) == 1 || len(result) == 2 {
+					portString = d.DockerLabels[string(result[0][0])]
+					portName = ""
+				} else if len(result) > 2 {
+					portString = d.DockerLabels[string(result[0][0])]
+					portName = string(result[0][2])
+				} else {
+					continue
+				}
+
+				if exporterPort, err := strconv.Atoi(portString); err != nil || exporterPort < 0 {
+					// This container has an invalid port definition.
+					// This container is no good.  We continue.
+					continue
+				} else {
+					portPairs[portName] = PortPair{exporterPort: exporterPort}
+				}
+			}
+
+			if len(portPairs) == 0 {
 				continue
 			}
 
@@ -242,62 +269,59 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				}
 			}
 
-			var exporterPort int
-			var err error
-			if exporterPort, err = strconv.Atoi(v); err != nil || exporterPort < 0 {
-				// This container has an invalid port definition.
-				// This container is no good.  We continue.
-				continue
-			}
-
-			if len(i.NetworkBindings) > 0 {
-				for _, nb := range i.NetworkBindings {
-					if int(*nb.ContainerPort) == exporterPort {
-						hostPort = *nb.HostPort
+			for key, portPathPair := range portPairs {
+				if len(i.NetworkBindings) > 0 {
+					for _, nb := range i.NetworkBindings {
+						if int(*nb.ContainerPort) == portPathPair.exporterPort {
+							portPathPair.hostPort = int(*nb.HostPort)
+							portPairs[key] = portPathPair
+						}
 					}
+				} else {
+					for _, ni := range i.NetworkInterfaces {
+						if *ni.PrivateIpv4Address != "" {
+							ip = *ni.PrivateIpv4Address
+						}
+					}
+					portPathPair.hostPort = exporterPort
+					portPairs[key] = portPathPair
 				}
+			}
+			var exporterServerName string
+			var exporterPath string
+			var ok bool
+			exporterServerName, ok = d.DockerLabels[*prometheusServerNameLabel]
+			if ok {
+				host = strings.TrimRight(exporterServerName, "/")
 			} else {
-				for _, ni := range i.NetworkInterfaces {
-					if *ni.PrivateIpv4Address != "" {
-						ip = *ni.PrivateIpv4Address
-					}
+				// No server name, so fall back to ip address
+				host = ip
+			}
+
+			for key, portPathPair := range portPairs {
+				labels := labels{
+					TaskArn:       *t.TaskArn,
+					TaskName:      *t.TaskDefinition.Family,
+					JobName:       d.DockerLabels[*prometheusJobNameLabel],
+					TaskRevision:  fmt.Sprintf("%d", *t.TaskDefinition.Revision),
+					TaskGroup:     *t.Group,
+					ClusterArn:    *t.ClusterArn,
+					ContainerName: *i.Name,
+					ContainerArn:  *i.ContainerArn,
+					DockerImage:   *d.Image,
 				}
-				hostPort = int64(exporterPort)
+
+				exporterPath, ok = d.DockerLabels[*prometheusPathLabel+key]
+				if ok {
+					labels.MetricsPath = exporterPath
+				}
+
+				ret = append(ret, &PrometheusTaskInfo{
+					Targets: []string{fmt.Sprintf("%s:%d", host, portPathPair.hostPort)},
+					Labels:  labels,
+				})
 			}
 		}
-
-		var exporterServerName string
-		var exporterPath string
-		var ok bool
-		exporterServerName, ok = d.DockerLabels[*prometheusServerNameLabel]
-		if ok {
-			host = strings.TrimRight(exporterServerName, "/")
-		} else {
-			// No server name, so fall back to ip address
-			host = ip
-		}
-
-		labels := labels{
-			TaskArn:       *t.TaskArn,
-			TaskName:      *t.TaskDefinition.Family,
-			JobName:       d.DockerLabels[*prometheusJobNameLabel],
-			TaskRevision:  fmt.Sprintf("%d", *t.TaskDefinition.Revision),
-			TaskGroup:     *t.Group,
-			ClusterArn:    *t.ClusterArn,
-			ContainerName: *i.Name,
-			ContainerArn:  *i.ContainerArn,
-			DockerImage:   *d.Image,
-		}
-
-		exporterPath, ok = d.DockerLabels[*prometheusPathLabel]
-		if ok {
-			labels.MetricsPath = exporterPath
-		}
-
-		ret = append(ret, &PrometheusTaskInfo{
-			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
-			Labels:  labels,
-		})
 	}
 	return ret
 }
@@ -687,4 +711,9 @@ func main() {
 			break
 		}
 	}
+}
+
+type PortPair struct {
+	exporterPort int
+	hostPort int
 }

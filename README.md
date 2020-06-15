@@ -80,3 +80,11 @@ that every minute, and by default Prometheus will reload the
 file the minute it is written).  After reloading your Prometheus
 master configuration, this program will begin informing via
 the discovery file of new targets that Prometheus must scrape.
+
+### Multiple Ports
+
+If your container exposes metrics on more than one port for a single task you can use multiple labels as so:
+
+* `PROMETHEUS_EXPORTER_PORT.1` `9180` - Set the first port exposing metrics 
+* `PROMETHEUS_EXPORTER_PORT.2` `8080` - Set the second port exposing metrics
+* `PROMETHEUS_EXPORTER_PATH.2` `/api/v1/metrics` - The second port exposes metrics on a non-standard path of `/api/v1/metrics` 
