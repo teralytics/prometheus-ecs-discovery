@@ -88,3 +88,4 @@ If your container exposes metrics on more than one port for a single task you ca
 * `PROMETHEUS_EXPORTER_PORT.1` `9180` - Set the first port exposing metrics 
 * `PROMETHEUS_EXPORTER_PORT.2` `8080` - Set the second port exposing metrics
 * `PROMETHEUS_EXPORTER_PATH.2` `/api/v1/metrics` - The second port exposes metrics on a non-standard path of `/api/v1/metrics` 
+* `PROMETHEUS_EXPORTER_JOB_NAME.2` `logging` - The second port has a separate job name, `logging`, useful for differentiating otherwise identical metrics
