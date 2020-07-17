@@ -293,6 +293,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			}
 			var exporterServerName string
 			var exporterPath string
+			var exporterJobName string
 			var ok bool
 			exporterServerName, ok = d.DockerLabels[*prometheusServerNameLabel]
 			if ok {
@@ -318,6 +319,11 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				exporterPath, ok = d.DockerLabels[*prometheusPathLabel+key]
 				if ok {
 					labels.MetricsPath = exporterPath
+				}
+
+				exporterJobName, ok = d.DockerLabels[*prometheusJobNameLabel+key]
+				if ok {
+					labels.JobName = exporterJobName
 				}
 
 				ret = append(ret, &PrometheusTaskInfo{
