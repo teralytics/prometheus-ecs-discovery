@@ -1,1 +1,3 @@
 prometheus-ecs-discovery
+/.idea/
+/ecs_file_sd.yml
