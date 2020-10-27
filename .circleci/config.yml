@@ -36,11 +36,15 @@ commands:
       - attach_workspace:
           at: ~/project
 
-  docker_login:
+  docker_logins:
     steps:
       - run:
-          name: Login to the Docker repository
-          command: echo "$DOCKER_REGISTRY_PASSWORD" | docker login nexus.in.ft.com:5000 --username "$DOCKER_REGISTRY_USERNAME" --password-stdin
+          name: Login to Nexus and DockerHub
+          command: |
+            echo "Logging into FT Nexus"
+            echo "$DOCKER_REGISTRY_PASSWORD" | docker login nexus.in.ft.com:5000 --username "$DOCKER_REGISTRY_USERNAME" --password-stdin
+            echo "Logging into Docker Hub repository"
+            echo "$DOCKERHUB_ACCESS_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
 
   load_docker_image:
     steps:
@@ -85,7 +89,7 @@ jobs:
     steps:
       - setup_remote_docker
       - attach_golang_workspace
-      - docker_login
+      - docker_logins
 
       - run:
           name: Build the exporter Docker image if it does not exist
@@ -113,7 +117,7 @@ jobs:
       - setup_remote_docker
       - attach_golang_workspace
       - load_docker_image
-      - docker_login
+      - docker_logins
 
       - run:
           name: Push the Docker image
@@ -150,7 +154,9 @@ workflows:
             - install
 
       - build-image:
-          context: monitoring-agg-ecs-prod
+          context: 
+            - monitoring-agg-ecs-prod
+            - dockerhub-shared
           requires:
             - install
 
@@ -161,7 +167,9 @@ workflows:
             - build-image
 
       - publish-revision:
-          context: monitoring-agg-ecs-prod
+          context: 
+            - monitoring-agg-ecs-prod
+            - dockerhub-shared
           requires:
             - verify
             - build-image
