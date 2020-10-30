@@ -266,6 +266,13 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			}
 		}
 
+		if hostPort == 0 {
+			// This container has network bindings but none have a container port matching the exporter port.
+			// Since the host port is mandatory for the generated Prometheus config and host port 0 does
+			// not make sense, this container will be skipped.
+			continue
+		}
+
 		var exporterServerName string
 		var exporterPath string
 		var ok bool
