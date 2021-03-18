@@ -43,6 +43,14 @@ No
 
 No
 
+## Can Download Personal Data
+
+No
+
+## Can Contact Individuals
+
+No
+
 ## Failover Architecture Type
 
 ActiveActive
