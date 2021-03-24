@@ -498,8 +498,8 @@ func AddContainerInstancesToTasks(svc *ecs.ECS, svcec2 *ec2.EC2, taskList []*Aug
 	return taskList, nil
 }
 
-// GetTasksOfClusters returns the EC2 tasks running in a list of Clusters.
-func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]ecs.Task, error) {
+// GetTasksOfClusters returns the ECS tasks running in a list of Clusters.
+func GetTasksOfClusters(svc *ecs.ECS, clusterArns []*string) ([]ecs.Task, error) {
 	jobs := make(chan *string, len(clusterArns))
 	results := make(chan struct {
 		out *ecs.DescribeTasksOutput
@@ -577,7 +577,7 @@ func GetTasksOfClusters(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([
 // GetAugmentedTasks gets the fully AugmentedTasks running on
 // a list of Clusters.
 func GetAugmentedTasks(svc *ecs.ECS, svcec2 *ec2.EC2, clusterArns []*string) ([]*AugmentedTask, error) {
-	simpleTasks, err := GetTasksOfClusters(svc, svcec2, clusterArns)
+	simpleTasks, err := GetTasksOfClusters(svc, clusterArns)
 	if err != nil {
 		return nil, err
 	}
