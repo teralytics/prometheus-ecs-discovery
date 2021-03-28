@@ -73,6 +73,7 @@ To scrape the containers add following docker labels to them:
 * `PROMETHEUS_EXPORTER_SERVER_NAME` specify the hostname here, per default ip is used (optional)
 * `PROMETHEUS_EXPORTER_JOB_NAME` specify job name here (optional)
 * `PROMETHEUS_EXPORTER_PATH` specify alternative scrape path here (optional)
+* `PROMETHEUS_EXPORTER_SCHEME` specify an alternative scheme here, default is http (optional)
 
 That's it.  You should begin seeing the program scraping the
 AWS APIs and writing the discovery file (by default it does

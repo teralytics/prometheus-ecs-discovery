@@ -44,6 +44,7 @@ type labels struct {
 	ContainerArn  string `yaml:"container_arn"`
 	DockerImage   string `yaml:"docker_image"`
 	MetricsPath   string `yaml:"__metrics_path__,omitempty"`
+	Scheme        string `yaml:"__scheme__,omitempty"`
 }
 
 // Docker label for enabling dynamic port detection
@@ -56,6 +57,7 @@ var times = flag.Int("config.scrape-times", 0, "how many times to scrape before 
 var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
 var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
 var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_PATH", "Docker label to define the scrape path of the application")
+var prometheusSchemeLabel= flag.String("config.scheme-label", "PROMETHEUS_EXPORTER_SCHEME", "Docker label to define the scheme of the target application")
 var prometheusFilterLabel = flag.String("config.filter-label", "", "Docker label (and optionally value) to require to scrape the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
@@ -98,10 +100,10 @@ func GetClusters(svc *ecs.Client) (*ecs.ListClustersOutput, error) {
 			return nil, err
 		}
 		output.ClusterArns = append(output.ClusterArns, myoutput.ClusterArns...)
-		if output.NextToken == nil {
+		if myoutput.NextToken == nil {
 			break
 		}
-		input.NextToken = output.NextToken
+		input.NextToken = myoutput.NextToken
 	}
 	return output, nil
 }
@@ -267,8 +269,16 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			}
 		}
 
+		if hostPort == 0 {
+			// This container has network bindings but none have a container port matching the exporter port.
+			// Since the host port is mandatory for the generated Prometheus config and host port 0 does
+			// not make sense, this container will be skipped.
+			continue
+		}
+
 		var exporterServerName string
 		var exporterPath string
+		var scheme string
 		var ok bool
 		exporterServerName, ok = d.DockerLabels[*prometheusServerNameLabel]
 		if ok {
@@ -293,6 +303,11 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		exporterPath, ok = d.DockerLabels[*prometheusPathLabel]
 		if ok {
 			labels.MetricsPath = exporterPath
+		}
+
+		scheme, ok = d.DockerLabels[*prometheusSchemeLabel]
+		if ok {
+		    labels.Scheme = scheme
 		}
 
 		ret = append(ret, &PrometheusTaskInfo{
@@ -500,7 +515,7 @@ func AddContainerInstancesToTasks(svc *ecs.Client, svcec2 *ec2.Client, taskList 
 }
 
 // GetTasksOfClusters returns the EC2 tasks running in a list of Clusters.
-func GetTasksOfClusters(svc *ecs.Client, svcec2 *ec2.Client, clusterArns []*string) ([]ecs.Task, error) {
+func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecs.Task, error) {
 	jobs := make(chan *string, len(clusterArns))
 	results := make(chan struct {
 		out *ecs.DescribeTasksOutput
@@ -578,7 +593,7 @@ func GetTasksOfClusters(svc *ecs.Client, svcec2 *ec2.Client, clusterArns []*stri
 // GetAugmentedTasks gets the fully AugmentedTasks running on
 // a list of Clusters.
 func GetAugmentedTasks(svc *ecs.Client, svcec2 *ec2.Client, clusterArns []*string) ([]*AugmentedTask, error) {
-	simpleTasks, err := GetTasksOfClusters(svc, svcec2, clusterArns)
+	simpleTasks, err := GetTasksOfClusters(svc, clusterArns)
 	if err != nil {
 		return nil, err
 	}
