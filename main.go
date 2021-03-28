@@ -97,10 +97,10 @@ func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 			return nil, err
 		}
 		output.ClusterArns = append(output.ClusterArns, myoutput.ClusterArns...)
-		if output.NextToken == nil {
+		if myoutput.NextToken == nil {
 			break
 		}
-		input.NextToken = output.NextToken
+		input.NextToken = myoutput.NextToken
 	}
 	return output, nil
 }
