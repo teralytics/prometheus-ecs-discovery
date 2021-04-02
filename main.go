@@ -15,6 +15,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -22,14 +24,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"context"
 
-	"github.com/aws/aws-sdk-go-v2/aws/awserr"
-	"github.com/aws/aws-sdk-go-v2/aws/external"
-	"github.com/aws/aws-sdk-go-v2/aws/stscreds"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 	"github.com/go-yaml/yaml"
 )
 
@@ -67,21 +70,9 @@ var prometheusDynamicPortDetection = flag.Bool("config.dynamic-port-detection", 
 // errors and displays them to standard error.
 func logError(err error) {
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			switch aerr.Code() {
-			case ecs.ErrCodeException:
-				log.Println(ecs.ErrCodeException, aerr.Error())
-			case ecs.ErrCodeServerException:
-				log.Println(ecs.ErrCodeServerException, aerr.Error())
-			case ecs.ErrCodeInvalidParameterException:
-				log.Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
-			case ecs.ErrCodeClusterNotFoundException:
-				log.Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
-			default:
-				log.Println(aerr.Error())
-			}
+		var oe *smithy.OperationError
+		if errors.As(err, &oe) {
+			log.Printf("failed to call service: %s, operation: %s, error: %v", oe.Service(), oe.Operation(), oe.Unwrap())
 		} else {
 			log.Println(err.Error())
 		}
@@ -94,8 +85,7 @@ func GetClusters(svc *ecs.Client) (*ecs.ListClustersOutput, error) {
 	input := &ecs.ListClustersInput{}
 	output := &ecs.ListClustersOutput{}
 	for {
-		req := svc.ListClustersRequest(input)
-		myoutput, err := req.Send(context.Background())
+		myoutput, err := svc.ListClusters(context.Background(), input)
 		if err != nil {
 			return nil, err
 		}
@@ -112,9 +102,9 @@ func GetClusters(svc *ecs.Client) (*ecs.ListClustersOutput, error) {
 // structures representing the ECS task definition and EC2 instance
 // associated with the running task.
 type AugmentedTask struct {
-	*ecs.Task
-	TaskDefinition *ecs.TaskDefinition
-	EC2Instance    *ec2.Instance
+	*ecstypes.Task
+	TaskDefinition *ecstypes.TaskDefinition
+	EC2Instance    *ec2types.Instance
 }
 
 // PrometheusContainer represents a tuple of information
@@ -165,7 +155,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	var host string
 	var ip string
 
-	if t.LaunchType != ecs.LaunchTypeFargate {
+	if t.LaunchType != ecstypes.LaunchTypeFargate {
 		if t.EC2Instance == nil {
 			return ret
 		}
@@ -194,7 +184,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 
 	for _, i := range t.Containers {
 		// Let's go over the containers to see which ones are defined
-		var d ecs.ContainerDefinition
+		var d ecstypes.ContainerDefinition
 		for _, d = range t.TaskDefinition.ContainerDefinitions {
 			if *i.Name == *d.Name {
 				// Aha, the container definition match this container we
@@ -202,12 +192,12 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				break
 			}
 		}
-		if *i.Name != *d.Name && t.LaunchType != ecs.LaunchTypeFargate {
+		if *i.Name != *d.Name && t.LaunchType != ecstypes.LaunchTypeFargate {
 			// Nope, no match, this container cannot be exported.  We continue.
 			continue
 		}
 
-		var hostPort int64
+		var hostPort int32
 		if *prometheusDynamicPortDetection {
 			v, ok := d.DockerLabels[dynamicPortLabel]
 			if !ok || v != "1" {
@@ -265,7 +255,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 						ip = *ni.PrivateIpv4Address
 					}
 				}
-				hostPort = int64(exporterPort)
+				hostPort = int32(exporterPort)
 			}
 		}
 
@@ -292,7 +282,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			TaskArn:       *t.TaskArn,
 			TaskName:      *t.TaskDefinition.Family,
 			JobName:       d.DockerLabels[*prometheusJobNameLabel],
-			TaskRevision:  fmt.Sprintf("%d", *t.TaskDefinition.Revision),
+			TaskRevision:  fmt.Sprintf("%d", t.TaskDefinition.Revision),
 			TaskGroup:     *t.Group,
 			ClusterArn:    *t.ClusterArn,
 			ContainerName: *i.Name,
@@ -321,24 +311,23 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 // AddTaskDefinitionsOfTasks adds to each Task the TaskDefinition
 // corresponding to it.
 func AddTaskDefinitionsOfTasks(svc *ecs.Client, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
-	task2def := make(map[string]*ecs.TaskDefinition)
+	task2def := make(map[string]*ecstypes.TaskDefinition)
 	for _, task := range taskList {
 		task2def[*task.TaskDefinitionArn] = nil
 	}
 
 	jobs := make(chan *ecs.DescribeTaskDefinitionInput, len(task2def))
 	results := make(chan struct {
-		out *ecs.DescribeTaskDefinitionResponse
+		out *ecs.DescribeTaskDefinitionOutput
 		err error
 	}, len(task2def))
 
 	for w := 1; w <= 4; w++ {
 		go func() {
 			for in := range jobs {
-				req := svc.DescribeTaskDefinitionRequest(in)
-				out, err := req.Send(context.Background())
+				out, err := svc.DescribeTaskDefinition(context.Background(), in)
 				results <- struct {
-					out *ecs.DescribeTaskDefinitionResponse
+					out *ecs.DescribeTaskDefinitionOutput
 					err error
 				}{out, err}
 			}
@@ -400,7 +389,7 @@ func SplitArray(a []string, size int) [][]string {
 // DescribeInstancesUnpaginated describes a list of EC2 instances.
 // It is unpaginated because the API function does not require
 // pagination.
-func DescribeInstancesUnpaginated(svc *ec2.Client, instanceIds []string) ([]ec2.Instance, error) {
+func DescribeInstancesUnpaginated(svc *ec2.Client, instanceIds []string) ([]ec2types.Instance, error) {
 	if len(instanceIds) == 0 {
 		return nil, nil
 	}
@@ -411,8 +400,7 @@ func DescribeInstancesUnpaginated(svc *ec2.Client, instanceIds []string) ([]ec2.
 			InstanceIds: chunkedInstanceIds,
 		}
 		for {
-			req := svc.DescribeInstancesRequest(input)
-			output, err := req.Send(context.Background())
+			output, err := svc.DescribeInstances(context.Background(), input)
 			if err != nil {
 				return nil, err
 			}
@@ -424,7 +412,7 @@ func DescribeInstancesUnpaginated(svc *ec2.Client, instanceIds []string) ([]ec2.
 			input.NextToken = output.NextToken
 		}
 	}
-	result := []ec2.Instance{}
+	result := []ec2types.Instance{}
 	for _, rsv := range finalOutput.Reservations {
 		for _, i := range rsv.Instances {
 			result = append(result, i)
@@ -437,17 +425,17 @@ func DescribeInstancesUnpaginated(svc *ec2.Client, instanceIds []string) ([]ec2.
 // running its containers.
 func AddContainerInstancesToTasks(svc *ecs.Client, svcec2 *ec2.Client, taskList []*AugmentedTask) ([]*AugmentedTask, error) {
 
-	clusterArnToContainerInstancesArns := make(map[string]map[string]*ecs.ContainerInstance)
+	clusterArnToContainerInstancesArns := make(map[string]map[string]*ecstypes.ContainerInstance)
 	for _, task := range taskList {
 		if task.ContainerInstanceArn != nil {
 			if _, ok := clusterArnToContainerInstancesArns[*task.ClusterArn]; !ok {
-				clusterArnToContainerInstancesArns[*task.ClusterArn] = make(map[string]*ecs.ContainerInstance)
+				clusterArnToContainerInstancesArns[*task.ClusterArn] = make(map[string]*ecstypes.ContainerInstance)
 			}
 			clusterArnToContainerInstancesArns[*task.ClusterArn][*task.ContainerInstanceArn] = nil
 		}
 	}
 
-	instanceIDToEC2Instance := make(map[string]*ec2.Instance)
+	instanceIDToEC2Instance := make(map[string]*ec2types.Instance)
 	for clusterArn, containerInstancesArns := range clusterArnToContainerInstancesArns {
 		keys := make([]string, 0, len(containerInstancesArns))
 		for k := range containerInstancesArns {
@@ -460,8 +448,7 @@ func AddContainerInstancesToTasks(svc *ecs.Client, svcec2 *ec2.Client, taskList 
 				Cluster:            &clusterArn,
 				ContainerInstances: chunkedKeys,
 			}
-			req := svc.DescribeContainerInstancesRequest(input)
-			output, err := req.Send(context.Background())
+			output, err := svc.DescribeContainerInstances(context.Background(), input)
 			if err != nil {
 				return nil, err
 			}
@@ -515,7 +502,7 @@ func AddContainerInstancesToTasks(svc *ecs.Client, svcec2 *ec2.Client, taskList 
 }
 
 // GetTasksOfClusters returns the EC2 tasks running in a list of Clusters.
-func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecs.Task, error) {
+func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecstypes.Task, error) {
 	jobs := make(chan *string, len(clusterArns))
 	results := make(chan struct {
 		out *ecs.DescribeTasksOutput
@@ -531,8 +518,7 @@ func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecs.Task, err
 				finalOutput := &ecs.DescribeTasksOutput{}
 				var err error
 				for {
-					req := svc.ListTasksRequest(input)
-					output, err1 := req.Send(context.Background())
+					output, err1 := svc.ListTasks(context.Background(), input)
 					if err1 != nil {
 						err = err1
 						log.Printf("Error listing tasks of cluster %s: %s", *clusterArn, err)
@@ -542,11 +528,11 @@ func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecs.Task, err
 						break
 					}
 					log.Printf("Inspected cluster %s, found %d tasks", *clusterArn, len(output.TaskArns))
-					reqDescribe := svc.DescribeTasksRequest(&ecs.DescribeTasksInput{
+					inDescribe := &ecs.DescribeTasksInput{
 						Cluster: clusterArn,
 						Tasks:   output.TaskArns,
-					})
-					descOutput, err2 := reqDescribe.Send(context.Background())
+					}
+					descOutput, err2 := svc.DescribeTasks(context.Background(), inDescribe)
 					if err2 != nil {
 						err = err2
 						log.Printf("Error describing tasks of cluster %s: %s", *clusterArn, err)
@@ -576,7 +562,7 @@ func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecs.Task, err
 	}
 	close(jobs)
 
-	tasks := []ecs.Task{}
+	tasks := []ecstypes.Task{}
 	for range clusterArns {
 		result := <-results
 		if result.err != nil {
@@ -618,7 +604,7 @@ func GetAugmentedTasks(svc *ecs.Client, svcec2 *ec2.Client, clusterArns []*strin
 func main() {
 	flag.Parse()
 
-	config, err := external.LoadDefaultAWSConfig()
+	config, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		logError(err)
 		return
@@ -626,31 +612,28 @@ func main() {
 
 	if *roleArn != "" {
 		// Assume role
-		stsSvc := sts.New(config)
+		stsSvc := sts.NewFromConfig(config)
 		config.Credentials = stscreds.NewAssumeRoleProvider(stsSvc, *roleArn)
 	}
 
 	// Initialise AWS Service clients
-	svc := ecs.New(config)
-	svcec2 := ec2.New(config)
+	svc := ecs.NewFromConfig(config)
+	svcec2 := ec2.NewFromConfig(config)
 
 	work := func() {
 		var clusters *ecs.ListClustersOutput
 
 		if *cluster != "" {
-			res, err := svc.DescribeClustersRequest(&ecs.DescribeClustersInput{
+			res, err := svc.DescribeClusters(context.Background(), &ecs.DescribeClustersInput{
 				Clusters: []string{*cluster},
-			}).Send(context.Background())
+			})
 			if err != nil {
 				logError(err)
 				return
 			}
 
 			if len(res.Clusters) == 0 {
-				logError(fmt.Errorf(
-					"%s cluster not found",
-					ecs.ErrCodeClusterNotFoundException,
-				))
+				logError(fmt.Errorf("%s cluster not found", *cluster))
 				return
 			}
 
