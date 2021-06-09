@@ -37,7 +37,7 @@ It may be useful to view the latest targets Prometheus has read from the written
 
 AWS credentials are obtained using an ECS task role and so should not require keys or require human intervention due to expiry.
 
-View the generic troubleshooting information for the AWS ECS cluster (including services running on the cluster) which the application runs on: [monitoring-aggregation-ecs](https://github.com/Financial-Times/monitoring-aggregation-ecs/blob/master/documentation/RUNBOOK.md).
+View the generic troubleshooting information for the AWS ECS cluster (including services running on the cluster) which the application runs on: [monitoring-aggregation-ecs](https://github.com/Financial-Times/monitoring-aggregation-ecs/blob/master/RUNBOOK.md).
 
 ## Second Line Troubleshooting
 
@@ -56,7 +56,7 @@ There are several Grafana dashboards:
 
 Logs are available in [Splunk](https://financialtimes.splunkcloud.com/en-GB/app/search/search?q=search%20index%3D%22operations-reliability%22%20attrs.com.ft.service-name%3D%22prometheus-ecs-discovery*%22%20attrs.com.ft.service-region%3D%22*%22&display.page.search.mode=verbose&dispatch.sample_ratio=1&earliest=-1h&latest=now) via the query:
 
-```splunk
+```
 index="operations-reliability" attrs.com.ft.service-name="prometheus-ecs-discovery-*-service" attrs.com.ft.service-region="*"
 ```
 
@@ -82,7 +82,7 @@ No
 
 Diagram for the exporter:
 
-![prometheus-ecs-discovery-architecture](./architecture/prometheus-ecs-discovery-architecture.png)
+![prometheus-ecs-discovery-architecture](architecture/prometheus-ecs-discovery-architecture.png)
 
 [View in Lucidchart](https://www.lucidchart.com/invitations/accept/3ef3819f-ff35-4f3f-a393-eecd21ea0d15).
 
@@ -151,6 +151,6 @@ The systems secrets are set at build time as parameters in the services Cloudfor
 They come from two sources:
 
 1.  The CircleCI environment variables for the CircleCI project.
-2.  The CircleCI context used in the [CircleCI config](https://github.com/Financial-Times/prometheus-ecs-discovery/blob/master/.circleci/config.yml).
+2.  The CircleCI context used in the [CircleCI config](.circleci/config.yml).
 
-See the [README](https://github.com/Financial-Times/prometheus-ecs-discovery#prometheus-amazon-ecs-discovery) for more details.
+See the [README](README.md#prometheus-amazon-ecs-discovery) for more details.
