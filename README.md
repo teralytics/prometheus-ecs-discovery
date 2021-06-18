@@ -75,9 +75,26 @@ To scrape the containers add following docker labels to them:
 * `PROMETHEUS_EXPORTER_PATH` specify alternative scrape path here (optional)
 * `PROMETHEUS_EXPORTER_SCHEME` specify an alternative scheme here, default is http (optional)
 
+By docker labels one means `dockerLabels` map in ECS task definition JSONs like that:
+```json
+{
+  ...
+  "containerDefinitions": [
+    {
+      ...
+      "dockerLabels": {
+        "PROMETHEUS_EXPORTER_PORT": "5000"
+      }
+    }
+  ]
+  ...
+}
+```
+
 That's it.  You should begin seeing the program scraping the
 AWS APIs and writing the discovery file (by default it does
 that every minute, and by default Prometheus will reload the
 file the minute it is written).  After reloading your Prometheus
 master configuration, this program will begin informing via
 the discovery file of new targets that Prometheus must scrape.
+
