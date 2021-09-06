@@ -44,7 +44,7 @@ Then, run it as follows:
   (IAM policies should include `ECS:ListClusters`,
   `ECS:ListTasks`, `ECS:DescribeTask`, `EC2:DescribeInstances`,
   `ECS:DescribeContainerInstances`, `ECS:DescribeTasks`,
-  `ECS:DescribeTaskDefinition`). If the program needs to assume
+  `ECS:DescribeTaskDefinition`, `ECS:DescribeClusters`). If the program needs to assume
   a different role to obtain access, this role's ARN may be
   passed in via the `--config.role-arn` option. This option also
   allows for cross-account access, depending on which account
