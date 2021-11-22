@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	"github.com/go-yaml/yaml"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type labels struct {
@@ -56,6 +60,7 @@ const dynamicPortLabel = "PROMETHEUS_DYNAMIC_EXPORT"
 var cluster = flag.String("config.cluster", "", "name of the cluster to scrape")
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
+var metricsPort = flag.Int("config.metrics-port", 9999, "the port on which to expose metrics")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
 var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
 var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
@@ -65,6 +70,42 @@ var prometheusFilterLabel = flag.String("config.filter-label", "", "Docker label
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
 var prometheusDynamicPortDetection = flag.Bool("config.dynamic-port-detection", false, fmt.Sprintf("If true, only tasks with the Docker label %s=1 will be scraped", dynamicPortLabel))
+
+var discoveryDuration = promauto.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "prometheus_ecs_sd_discovery_duration_seconds",
+		Help: "How long the most recent service discovery process took",
+	},
+)
+
+var discoveryCount = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "prometheus_ecs_sd_discovery_total",
+		Help: "How many discoveries have been performed",
+	},
+)
+
+var discoveryFailures = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "prometheus_ecs_sd_discovery_failure_total",
+		Help: "How many discoveries have failed",
+	},
+)
+
+var targetCount = promauto.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "prometheus_ecs_sd_discovery_target_total",
+		Help: "How many targets have been discovered",
+	},
+)
+
+var inspectionCount = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "prometheus_ecs_sd_inspection_total",
+		Help: "How many AWS entities have been inspected",
+	},
+	[]string{"type"},
+)
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -399,6 +440,7 @@ func DescribeInstancesUnpaginated(svc *ec2.Client, instanceIds []string) ([]ec2t
 		input := &ec2.DescribeInstancesInput{
 			InstanceIds: chunkedInstanceIds,
 		}
+		inspectionCount.With(prometheus.Labels{"type":"ec2_instance"}).Add(float64(len(input.InstanceIds)))
 		for {
 			output, err := svc.DescribeInstances(context.Background(), input)
 			if err != nil {
@@ -527,7 +569,8 @@ func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecstypes.Task
 					if len(output.TaskArns) == 0 {
 						break
 					}
-					log.Printf("Inspected cluster %s, found %d tasks", *clusterArn, len(output.TaskArns))
+					inspectionCount.With(prometheus.Labels{"type":"ecs_cluster"}).Inc()
+					inspectionCount.With(prometheus.Labels{"type":"ecs_task"}).Add(float64(len(output.TaskArns)))
 					inDescribe := &ecs.DescribeTasksInput{
 						Cluster: clusterArn,
 						Tasks:   output.TaskArns,
@@ -538,7 +581,6 @@ func GetTasksOfClusters(svc *ecs.Client, clusterArns []*string) ([]ecstypes.Task
 						log.Printf("Error describing tasks of cluster %s: %s", *clusterArn, err)
 						break
 					}
-					log.Printf("Described %d tasks in cluster %s", len(descOutput.Tasks), *clusterArn)
 					if len(descOutput.Failures) > 0 {
 						log.Printf("Described %d failures in cluster %s", len(descOutput.Failures), *clusterArn)
 					}
@@ -604,6 +646,15 @@ func GetAugmentedTasks(svc *ecs.Client, svcec2 *ec2.Client, clusterArns []*strin
 func main() {
 	flag.Parse()
 
+	http.Handle("/metrics", promhttp.Handler())
+
+	go func() {
+		err := http.ListenAndServe(fmt.Sprintf(":%d", *metricsPort), nil)
+		if err != nil {
+			log.Println(fmt.Errorf("metrics server failed: %w", err))
+		}
+	}()
+
 	config, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		logError(err)
@@ -620,7 +671,7 @@ func main() {
 	svc := ecs.NewFromConfig(config)
 	svcec2 := ec2.NewFromConfig(config)
 
-	work := func() {
+	work := func() error {
 		var clusters *ecs.ListClustersOutput
 
 		if *cluster != "" {
@@ -628,13 +679,11 @@ func main() {
 				Clusters: []string{*cluster},
 			})
 			if err != nil {
-				logError(err)
-				return
+				return err
 			}
 
 			if len(res.Clusters) == 0 {
-				logError(fmt.Errorf("%s cluster not found", *cluster))
-				return
+				return fmt.Errorf("%s cluster not found", *cluster)
 			}
 
 			clusters = &ecs.ListClustersOutput{
@@ -643,8 +692,7 @@ func main() {
 		} else {
 			c, err := GetClusters(svc)
 			if err != nil {
-				logError(err)
-				return
+				return err
 			}
 			clusters = c
 
@@ -652,8 +700,7 @@ func main() {
 
 		tasks, err := GetAugmentedTasks(svc, svcec2, StringToStarString(clusters.ClusterArns))
 		if err != nil {
-			logError(err)
-			return
+			return err
 		}
 		infos := []*PrometheusTaskInfo{}
 		for _, t := range tasks {
@@ -662,25 +709,32 @@ func main() {
 		}
 		m, err := yaml.Marshal(infos)
 		if err != nil {
-			logError(err)
-			return
+			return err
 		}
-		log.Printf("Writing %d discovered exporters to %s", len(infos), *outFile)
+		targetCount.Set(float64(len(infos)))
 		err = ioutil.WriteFile(*outFile, m, 0644)
 		if err != nil {
-			logError(err)
-			return
+			return err
 		}
+		return nil
 	}
 	s := time.NewTimer(1 * time.Millisecond)
 	t := time.NewTicker(*interval)
 	n := *times
+	var workErr error
 	for {
 		select {
 		case <-s.C:
 		case <-t.C:
 		}
-		work()
+		start := time.Now()
+		workErr = work()
+		discoveryCount.Inc()
+		if workErr != nil {
+			discoveryFailures.Inc()
+			logError(workErr)
+		}
+		discoveryDuration.Set(time.Since(start).Seconds())
 		n = n - 1
 		if *times > 0 && n == 0 {
 			break
