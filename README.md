@@ -20,6 +20,7 @@ The command line parameters that can be used are:
   discovery information to (default "ecs_file_sd.yml")
 * -config.role-arn (string): ARN of the role to assume when scraping
   the AWS API (optional)
+* -config.metrics-port (int): The port to expose Prometheus metrics on (default 9999)
 * -config.server-name-label (string): Docker label to define the server name
   (default "PROMETHEUS_EXPORTER_SERVER_NAME")
 * -config.job-name-label (string): Docker label to define the job name
@@ -98,3 +99,20 @@ file the minute it is written).  After reloading your Prometheus
 master configuration, this program will begin informing via
 the discovery file of new targets that Prometheus must scrape.
 
+## Metrics
+
+The application exposes Prometheus metrics relating to its activity. These are
+available on HTTP port 9999 under the path `/metrics`. The following metrics
+are exposed:
+
+`prometheus_ecs_sd_discovery_duration_seconds`: How long the most recent
+service discovery process took.
+
+`prometheus_ecs_sd_discovery_total`: How many discoveries have been performed
+since the application started.
+
+`prometheus_ecs_sd_discovery_failure_total`: How many discoveries have failed
+since the application started.
+
+`prometheus_ecs_sd_discovery_target_total`: How many targets have been
+discovered since the application started.
