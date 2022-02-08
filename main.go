@@ -15,11 +15,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"strconv"
 	"strings"
@@ -34,6 +34,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	"github.com/go-yaml/yaml"
+	"github.com/natefinch/atomic"
 )
 
 type labels struct {
@@ -661,12 +662,13 @@ func main() {
 			infos = append(infos, info...)
 		}
 		m, err := yaml.Marshal(infos)
+		b := bytes.NewBuffer(m)
 		if err != nil {
 			logError(err)
 			return
 		}
 		log.Printf("Writing %d discovered exporters to %s", len(infos), *outFile)
-		err = ioutil.WriteFile(*outFile, m, 0644)
+		err = atomic.WriteFile(*outFile, b) //  need to set mode 0644 first time
 		if err != nil {
 			logError(err)
 			return
