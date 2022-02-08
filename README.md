@@ -20,6 +20,8 @@ The command line parameters that can be used are:
   discovery information to (default "ecs_file_sd.yml")
 * -config.role-arn (string): ARN of the role to assume when scraping
   the AWS API (optional)
+* -config.aws-api-retries (int): how many times to retry accessing the AWS API
+  before giving up and throwing the error (Can help with Throttling Exceptions)
 * -config.server-name-label (string): Docker label to define the server name
   (default "PROMETHEUS_EXPORTER_SERVER_NAME")
 * -config.job-name-label (string): Docker label to define the job name
@@ -97,4 +99,3 @@ that every minute, and by default Prometheus will reload the
 file the minute it is written).  After reloading your Prometheus
 master configuration, this program will begin informing via
 the discovery file of new targets that Prometheus must scrape.
-
