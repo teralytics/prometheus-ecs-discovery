@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -668,11 +669,12 @@ func main() {
 			return
 		}
 		log.Printf("Writing %d discovered exporters to %s", len(infos), *outFile)
-		err = atomic.WriteFile(*outFile, b) //  need to set mode 0644 first time
+		err = atomic.WriteFile(*outFile, b)
 		if err != nil {
 			logError(err)
 			return
 		}
+		os.Chmod(*outFile, 0644)
 	}
 	s := time.NewTimer(1 * time.Millisecond)
 	t := time.NewTicker(*interval)
