@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -37,15 +38,16 @@ import (
 )
 
 type labels struct {
-	TaskArn       string `yaml:"task_arn"`
-	TaskName      string `yaml:"task_name"`
+	TaskArn       string `yaml:"ecs_task_arn"`
+	TaskName      string `yaml:"ecs_task_name"`
 	JobName       string `yaml:"job,omitempty"`
-	TaskRevision  string `yaml:"task_revision"`
-	TaskGroup     string `yaml:"task_group"`
-	ClusterArn    string `yaml:"cluster_arn"`
-	ContainerName string `yaml:"container_name"`
-	ContainerArn  string `yaml:"container_arn"`
-	DockerImage   string `yaml:"docker_image"`
+	TaskRevision  string `yaml:"ecs_task_revision"`
+	TaskGroup     string `yaml:"ecs_task_group"`
+	ClusterArn    string `yaml:"ecs_cluster_arn"`
+	ClusterName   string `yaml:"ecs_cluster_name"`
+	ContainerName string `yaml:"ecs_container_name"`
+	ContainerArn  string `yaml:"ecs_container_arn"`
+	DockerImage   string `yaml:"ecs_container_image"`
 	MetricsPath   string `yaml:"__metrics_path__,omitempty"`
 	Scheme        string `yaml:"__scheme__,omitempty"`
 }
@@ -60,7 +62,8 @@ var times = flag.Int("config.scrape-times", 0, "how many times to scrape before 
 var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
 var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
 var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_PATH", "Docker label to define the scrape path of the application")
-var prometheusSchemeLabel= flag.String("config.scheme-label", "PROMETHEUS_EXPORTER_SCHEME", "Docker label to define the scheme of the target application")
+var prometheusTargetsLabel = flag.String("config.targets-label", "PROMETHEUS_EXPORTER_TARGETS", "Docker label to define the comma separated list of scrape targets in port:/path format")
+var prometheusSchemeLabel = flag.String("config.scheme-label", "PROMETHEUS_EXPORTER_SCHEME", "Docker label to define the scheme of the target application")
 var prometheusFilterLabel = flag.String("config.filter-label", "", "Docker label (and optionally value) to require to scrape the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
@@ -77,6 +80,36 @@ func logError(err error) {
 			log.Println(err.Error())
 		}
 	}
+}
+
+// function parses a string like "port1:/path1, port2:/path2" into a map with ports as keys and paths as values
+func parsePortsAndPaths(s string) (map[int]string, error) {
+	portsAndPaths := make(map[int]string)
+
+	pairs := strings.Split(s, ",")
+	for _, pair := range pairs {
+		parts := strings.Split(pair, ":")
+
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid format: %s", pair)
+		}
+
+		portStr := strings.TrimSpace(parts[0])
+		path := strings.TrimSpace(parts[1])
+
+		if portStr == "" || path == "" {
+			return nil, fmt.Errorf("invalid format: %s", pair)
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port number: %s", portStr)
+		}
+
+		portsAndPaths[port] = path
+	}
+
+	return portsAndPaths, nil
 }
 
 // GetClusters retrieves a list of *ClusterArns from Amazon ECS,
@@ -131,25 +164,26 @@ type PrometheusTaskInfo struct {
 // container in the task has a PROMETHEUS_EXPORTER_PORT
 //
 // Example:
-//     ...
-//             "Name": "apache",
-//             "DockerLabels": {
-//                  "PROMETHEUS_EXPORTER_PORT": "1234"
-//              },
-//     ...
-//              "PortMappings": [
-//                {
-//                  "ContainerPort": 1883,
-//                  "HostPort": 0,
-//                  "Protocol": "tcp"
-//                },
-//                {
-//                  "ContainerPort": 1234,
-//                  "HostPort": 0,
-//                  "Protocol": "tcp"
-//                }
-//              ],
-//     ...
+//
+//	...
+//	        "Name": "apache",
+//	        "DockerLabels": {
+//	             "PROMETHEUS_EXPORTER_PORT": "1234"
+//	         },
+//	...
+//	         "PortMappings": [
+//	           {
+//	             "ContainerPort": 1883,
+//	             "HostPort": 0,
+//	             "Protocol": "tcp"
+//	           },
+//	           {
+//	             "ContainerPort": 1234,
+//	             "HostPort": 0,
+//	             "Protocol": "tcp"
+//	           }
+//	         ],
+//	...
 func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 	ret := []*PrometheusTaskInfo{}
 	var host string
@@ -197,6 +231,39 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			continue
 		}
 
+		clusterNameRe := regexp.MustCompile(`cluster/(.*)$`)
+
+		labels := labels{
+			TaskArn:       *t.TaskArn,
+			TaskName:      *t.TaskDefinition.Family,
+			JobName:       d.DockerLabels[*prometheusJobNameLabel],
+			TaskRevision:  fmt.Sprintf("%d", t.TaskDefinition.Revision),
+			TaskGroup:     *t.Group,
+			ClusterArn:    *t.ClusterArn,
+			ClusterName:   clusterNameRe.FindStringSubmatch(*t.ClusterArn)[1],
+			ContainerName: *i.Name,
+			ContainerArn:  *i.ContainerArn,
+			DockerImage:   *d.Image,
+		}
+
+		scheme, ok := d.DockerLabels[*prometheusSchemeLabel]
+		if ok {
+			labels.Scheme = scheme
+		}
+
+		exporterServerName, ok := d.DockerLabels[*prometheusServerNameLabel]
+		if ok {
+			host = strings.TrimRight(exporterServerName, "/")
+		} else {
+			for _, ni := range i.NetworkInterfaces {
+				if *ni.PrivateIpv4Address != "" {
+					ip = *ni.PrivateIpv4Address
+				}
+			}
+			// No server name, so fall back to ip address
+			host = ip
+		}
+
 		var hostPort int32
 		if *prometheusDynamicPortDetection {
 			v, ok := d.DockerLabels[dynamicPortLabel]
@@ -216,94 +283,77 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				hostPort = *port
 			}
 		} else {
-			v, ok := d.DockerLabels[*prometheusPortLabel]
-			if !ok {
-				// Nope, no Prometheus-exported port in this container def.
-				// This container is no good.  We continue.
-				continue
-			}
+			port, okPort := d.DockerLabels[*prometheusPortLabel]
+			targets, okTargets := d.DockerLabels[*prometheusTargetsLabel]
 
-			if len(filter) != 0 {
-				v, ok := d.DockerLabels[filter[0]]
-				if !ok {
-					// Nope, the filter label isn't present.
-					continue
-				}
-				if len(filter) == 2 && v != filter[1] {
-					// Nope, the filter label value doesn't match.
-					continue
-				}
-			}
-
-			var exporterPort int
-			var err error
-			if exporterPort, err = strconv.Atoi(v); err != nil || exporterPort < 0 {
-				// This container has an invalid port definition.
-				// This container is no good.  We continue.
-				continue
-			}
-
-			if len(i.NetworkBindings) > 0 {
-				for _, nb := range i.NetworkBindings {
-					if int(*nb.ContainerPort) == exporterPort {
-						hostPort = *nb.HostPort
+			if okPort {
+				// port defined via port label
+				if len(filter) != 0 {
+					v, ok := d.DockerLabels[filter[0]]
+					if !ok {
+						// Nope, the filter label isn't present.
+						continue
 					}
+					if len(filter) == 2 && v != filter[1] {
+						// Nope, the filter label value doesn't match.
+						continue
+					}
+				}
+
+				var exporterPort int
+				var err error
+				if exporterPort, err = strconv.Atoi(port); err != nil || exporterPort < 0 {
+					// This container has an invalid port definition.
+					// This container is no good.  We continue.
+					continue
+				}
+
+				if len(i.NetworkBindings) > 0 {
+					for _, nb := range i.NetworkBindings {
+						if int(*nb.ContainerPort) == exporterPort {
+							hostPort = *nb.HostPort
+						}
+					}
+				} else {
+					hostPort = int32(exporterPort)
+				}
+
+				if hostPort == 0 {
+					// This container has network bindings but none have a container port matching the exporter port.
+					// Since the host port is mandatory for the generated Prometheus config and host port 0 does
+					// not make sense, this container will be skipped.
+					continue
+				}
+
+				exporterPath, ok := d.DockerLabels[*prometheusPathLabel]
+				if ok {
+					labels.MetricsPath = exporterPath
+				}
+
+				ret = append(ret, &PrometheusTaskInfo{
+					Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
+					Labels:  labels,
+				})
+			} else if okTargets {
+				// parse list of targets
+				portsAndPaths, err := parsePortsAndPaths(targets)
+				if err != nil {
+					fmt.Println("Targets parse error:", err)
+					continue
+				}
+				for port, path := range portsAndPaths {
+					labels.MetricsPath = path
+					ret = append(ret, &PrometheusTaskInfo{
+						Targets: []string{fmt.Sprintf("%s:%d", host, int32(port))},
+						Labels:  labels,
+					})
 				}
 			} else {
-				for _, ni := range i.NetworkInterfaces {
-					if *ni.PrivateIpv4Address != "" {
-						ip = *ni.PrivateIpv4Address
-					}
-				}
-				hostPort = int32(exporterPort)
+				// Nope, no Prometheus-exported port in this container def.
+				// This container is no good. We continue.
+				continue
 			}
 		}
-
-		if hostPort == 0 {
-			// This container has network bindings but none have a container port matching the exporter port.
-			// Since the host port is mandatory for the generated Prometheus config and host port 0 does
-			// not make sense, this container will be skipped.
-			continue
-		}
-
-		var exporterServerName string
-		var exporterPath string
-		var scheme string
-		var ok bool
-		exporterServerName, ok = d.DockerLabels[*prometheusServerNameLabel]
-		if ok {
-			host = strings.TrimRight(exporterServerName, "/")
-		} else {
-			// No server name, so fall back to ip address
-			host = ip
-		}
-
-		labels := labels{
-			TaskArn:       *t.TaskArn,
-			TaskName:      *t.TaskDefinition.Family,
-			JobName:       d.DockerLabels[*prometheusJobNameLabel],
-			TaskRevision:  fmt.Sprintf("%d", t.TaskDefinition.Revision),
-			TaskGroup:     *t.Group,
-			ClusterArn:    *t.ClusterArn,
-			ContainerName: *i.Name,
-			ContainerArn:  *i.ContainerArn,
-			DockerImage:   *d.Image,
-		}
-
-		exporterPath, ok = d.DockerLabels[*prometheusPathLabel]
-		if ok {
-			labels.MetricsPath = exporterPath
-		}
-
-		scheme, ok = d.DockerLabels[*prometheusSchemeLabel]
-		if ok {
-		    labels.Scheme = scheme
-		}
-
-		ret = append(ret, &PrometheusTaskInfo{
-			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
-			Labels:  labels,
-		})
 	}
 	return ret
 }
