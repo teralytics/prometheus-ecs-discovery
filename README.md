@@ -44,7 +44,7 @@ Then, run it as follows:
   (IAM policies should include `ECS:ListClusters`,
   `ECS:ListTasks`, `ECS:DescribeTask`, `EC2:DescribeInstances`,
   `ECS:DescribeContainerInstances`, `ECS:DescribeTasks`,
-  `ECS:DescribeTaskDefinition`). If the program needs to assume
+  `ECS:DescribeTaskDefinition`, `ECS:DescribeClusters`). If the program needs to assume
   a different role to obtain access, this role's ARN may be
   passed in via the `--config.role-arn` option. This option also
   allows for cross-account access, depending on which account
@@ -73,6 +73,23 @@ To scrape the containers add following docker labels to them:
 * `PROMETHEUS_EXPORTER_SERVER_NAME` specify the hostname here, per default ip is used (optional)
 * `PROMETHEUS_EXPORTER_JOB_NAME` specify job name here (optional)
 * `PROMETHEUS_EXPORTER_PATH` specify alternative scrape path here (optional)
+* `PROMETHEUS_EXPORTER_SCHEME` specify an alternative scheme here, default is http (optional)
+
+By docker labels one means `dockerLabels` map in ECS task definition JSONs like that:
+```json
+{
+  ...
+  "containerDefinitions": [
+    {
+      ...
+      "dockerLabels": {
+        "PROMETHEUS_EXPORTER_PORT": "5000"
+      }
+    }
+  ]
+  ...
+}
+```
 
 That's it.  You should begin seeing the program scraping the
 AWS APIs and writing the discovery file (by default it does
@@ -80,3 +97,4 @@ that every minute, and by default Prometheus will reload the
 file the minute it is written).  After reloading your Prometheus
 master configuration, this program will begin informing via
 the discovery file of new targets that Prometheus must scrape.
+
