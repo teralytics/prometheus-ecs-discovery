@@ -192,7 +192,8 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 				break
 			}
 		}
-		if *i.Name != *d.Name && t.LaunchType != ecstypes.LaunchTypeFargate {
+        // Removing '&& t.LaunchType != ecstypes.LaunchTypeFargate' condition because ECS service connect creates container not described on container defintions and causes a duplicated target.
+		if *i.Name != *d.Name {
 			// Nope, no match, this container cannot be exported.  We continue.
 			continue
 		}
