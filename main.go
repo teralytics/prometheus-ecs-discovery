@@ -245,7 +245,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 
 			if len(i.NetworkBindings) > 0 {
 				for _, nb := range i.NetworkBindings {
-					if int(*nb.ContainerPort) == exporterPort {
+					if int(*nb.ContainerPort) == exporterPort && *nb.BindIP == "0.0.0.0" {
 						hostPort = *nb.HostPort
 					}
 				}
