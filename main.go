@@ -33,7 +33,7 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
-	"github.com/go-yaml/yaml"
+	"gopkg.in/yaml.v3"
 )
 
 type labels struct {
@@ -42,6 +42,7 @@ type labels struct {
 	JobName       string `yaml:"job,omitempty"`
 	TaskRevision  string `yaml:"task_revision"`
 	TaskGroup     string `yaml:"task_group"`
+	InstanceId    string `yaml:"instance_id"`
 	ClusterArn    string `yaml:"cluster_arn"`
 	ContainerName string `yaml:"container_name"`
 	ContainerArn  string `yaml:"container_arn"`
@@ -53,14 +54,14 @@ type labels struct {
 // Docker label for enabling dynamic port detection
 const dynamicPortLabel = "PROMETHEUS_DYNAMIC_EXPORT"
 
-var cluster = flag.String("config.cluster", "", "name of the cluster to scrape")
+var cluster = flag.String("config.cluster", "", "name(s) of the cluster(s) to scrape (as comma-separated list)")
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
 var roleArn = flag.String("config.role-arn", "", "ARN of the role to assume when scraping the AWS API (optional)")
 var prometheusPortLabel = flag.String("config.port-label", "PROMETHEUS_EXPORTER_PORT", "Docker label to define the scrape port of the application (if missing an application won't be scraped)")
 var prometheusPathLabel = flag.String("config.path-label", "PROMETHEUS_EXPORTER_PATH", "Docker label to define the scrape path of the application")
-var prometheusSchemeLabel= flag.String("config.scheme-label", "PROMETHEUS_EXPORTER_SCHEME", "Docker label to define the scheme of the target application")
+var prometheusSchemeLabel = flag.String("config.scheme-label", "PROMETHEUS_EXPORTER_SCHEME", "Docker label to define the scheme of the target application")
 var prometheusFilterLabel = flag.String("config.filter-label", "", "Docker label (and optionally value) to require to scrape the application")
 var prometheusServerNameLabel = flag.String("config.server-name-label", "PROMETHEUS_EXPORTER_SERVER_NAME", "Docker label to define the server name")
 var prometheusJobNameLabel = flag.String("config.job-name-label", "PROMETHEUS_EXPORTER_JOB_NAME", "Docker label to define the job name")
@@ -288,6 +289,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			ContainerName: *i.Name,
 			ContainerArn:  *i.ContainerArn,
 			DockerImage:   *d.Image,
+			InstanceId:    *t.EC2Instance.InstanceId,
 		}
 
 		exporterPath, ok = d.DockerLabels[*prometheusPathLabel]
@@ -297,7 +299,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 
 		scheme, ok = d.DockerLabels[*prometheusSchemeLabel]
 		if ok {
-		    labels.Scheme = scheme
+			labels.Scheme = scheme
 		}
 
 		ret = append(ret, &PrometheusTaskInfo{
@@ -624,21 +626,29 @@ func main() {
 		var clusters *ecs.ListClustersOutput
 
 		if *cluster != "" {
+			var clustersFromConfig = strings.Split(*cluster, ",")
+
 			res, err := svc.DescribeClusters(context.Background(), &ecs.DescribeClustersInput{
-				Clusters: []string{*cluster},
+				Clusters: clustersFromConfig,
 			})
 			if err != nil {
 				logError(err)
 				return
 			}
 
-			if len(res.Clusters) == 0 {
-				logError(fmt.Errorf("%s cluster not found", *cluster))
+			if res.Failures != nil && len(res.Failures) > 0 {
+				logError(fmt.Errorf("one of the clusters %s was not found", *cluster))
 				return
 			}
 
+			var clusterArns []string
+
+			for _, c := range res.Clusters {
+				clusterArns = append(clusterArns, *c.ClusterArn)
+			}
+
 			clusters = &ecs.ListClustersOutput{
-				ClusterArns: []string{*cluster},
+				ClusterArns: clusterArns,
 			}
 		} else {
 			c, err := GetClusters(svc)
