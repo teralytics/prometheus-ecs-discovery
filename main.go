@@ -42,6 +42,7 @@ type labels struct {
 	JobName       string `yaml:"job,omitempty"`
 	TaskRevision  string `yaml:"task_revision"`
 	TaskGroup     string `yaml:"task_group"`
+	InstanceId    string `yaml:"instance_id"`
 	ClusterArn    string `yaml:"cluster_arn"`
 	ContainerName string `yaml:"container_name"`
 	ContainerArn  string `yaml:"container_arn"`
@@ -288,6 +289,7 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			ContainerName: *i.Name,
 			ContainerArn:  *i.ContainerArn,
 			DockerImage:   *d.Image,
+			InstanceId:    *t.EC2Instance.InstanceId,
 		}
 
 		exporterPath, ok = d.DockerLabels[*prometheusPathLabel]
